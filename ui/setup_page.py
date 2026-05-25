@@ -8,7 +8,8 @@ from tkinter import filedialog
 import customtkinter as ctk
 
 from core.project_generator import ProjectData
-from data.versions import FABRIC_VERSIONS, MINECRAFT_VERSIONS
+from core.fabric_registry import MINECRAFT_VERSIONS
+from core.fabric_registry import FABRIC_VERSIONS
 from ui.theme import COLORS
 
 

@@ -9,6 +9,8 @@ from core.build_runner import BuildRunner
 from ui.debug_console import DebugConsole
 from ui.editor import EditorPane
 from ui.file_tree import FileTree
+from ui.tab_bar import TabBar
+from ui.editor_manager import EditorManager
 from ui.theme import COLORS
 
 
@@ -19,6 +21,7 @@ class WorkspacePage(ctk.CTkFrame):
         self.workspace_path: Path | None = None
         self.build_runner = BuildRunner()
         self.is_busy = False
+        self.open_files: dict[Path, str] = {}  # path -> side
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -60,13 +63,23 @@ class WorkspacePage(ctk.CTkFrame):
         self.editor_pane.pack(fill="both", expand=True)
         self.main_pane.add(editor_console_frame, minsize=360)
 
-        self.editor = EditorPane(self.editor_pane)
-        self.editor_pane.add(self.editor, minsize=240, height=420)
+        self.tab_bar = TabBar(self,self._select_file,self._close_file,self._split_file,)
+        self.tab_bar.grid(row=0, column=0, sticky="ew")
+
+        self.editor_manager = EditorManager(self.editor_pane)
+        self.editor_pane.add(self.editor_manager, minsize=240, height=420)
 
         self.console = DebugConsole(self.editor_pane)
         self.editor_pane.add(self.console, minsize=120, height=180)
 
         self.refresh_gradle_state()
+
+    def _split_file(self, path: Path):
+        self.editor_manager.split_open(path)
+
+        self.editor_manager.right.set_close_callback(
+            self.editor_manager.close_right
+        )
 
     def load_workspace(self, path: Path) -> None:
         self.workspace_path = path
@@ -75,14 +88,29 @@ class WorkspacePage(ctk.CTkFrame):
         self.refresh_gradle_state()
 
     def _open_file(self, path: Path) -> None:
-        self.editor.open_file(path)
+        self.tab_bar.add_tab(path)
+
+        editor = self.editor_manager.open_file(path)
+        self.open_files[path] = "active"
+
+    def _select_file(self, path: Path) -> None:
+        self.editor_manager.set_active("left")
+        self.editor_manager.open_file(path)
+
+    def _close_file(self, path: Path) -> None:
+        if path in self.open_files:
+            del self.open_files[path]
+
+        # if no tabs remain, clear editors
+        if not self.open_files:
+            self.editor_manager.clear_all()
 
     def compile_workspace(self) -> None:
         if not self.workspace_path:
             self.console.write("No workspace is open.\n")
             return
 
-        self.editor.save_current()
+        self.editor_manager.save_all()
         self.is_busy = True
         self.compile_button.configure(state="disabled", text="Compiling")
         self.install_gradle_button.configure(state="disabled")

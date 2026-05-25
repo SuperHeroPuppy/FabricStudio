@@ -15,6 +15,7 @@ class EditorPane(ctk.CTkFrame):
         self.current_file: Path | None = None
         self.word_wrap = False
         self._highlight_job: str | None = None
+        self.close_side_callback = None
 
         self.grid_rowconfigure(1, weight=1)
         self.grid_columnconfigure(0, weight=1)
@@ -22,6 +23,7 @@ class EditorPane(ctk.CTkFrame):
         bar = ctk.CTkFrame(self, fg_color=COLORS["panel"], corner_radius=0, height=42)
         bar.grid(row=0, column=0, sticky="ew")
         bar.grid_columnconfigure(0, weight=1)
+        
 
         self.path_label = ctk.CTkLabel(bar, text="No file open", anchor="w", text_color=COLORS["muted"])
         self.path_label.grid(row=0, column=0, sticky="ew", padx=14, pady=8)
@@ -29,6 +31,22 @@ class EditorPane(ctk.CTkFrame):
         self.wrap_switch.grid(row=0, column=1, padx=(0, 8), pady=7)
         self.save_button = ctk.CTkButton(bar, text="Save", width=70, command=self.save_current)
         self.save_button.grid(row=0, column=2, sticky="e", padx=(0, 10), pady=7)
+
+        self.close_side_button = ctk.CTkButton(
+            bar,
+            text="×",
+            width=32,
+            command=self._close_side,
+        )
+
+        self.close_side_button.grid(
+            row=0,
+            column=3,
+            padx=(0, 10),
+            pady=7,
+        )
+
+        self.close_side_button.grid_remove()
 
         self.textbox = ctk.CTkTextbox(
             self,
@@ -45,19 +63,43 @@ class EditorPane(ctk.CTkFrame):
         self.textbox.bind("<KeyRelease>", self._queue_highlight)
         self._configure_tags()
 
-    def open_file(self, path: Path) -> None:
+    def load_content(self, path: Path, content: str) -> None:
         self.current_file = path
-        content = path.read_text(encoding="utf-8", errors="replace")
         self.textbox.delete("1.0", "end")
         self.textbox.insert("1.0", content)
         self.path_label.configure(text=str(path))
         self._highlight_syntax()
+
+    def open_file(self, path: Path) -> None:
+        self.load_content(path, path.read_text(encoding="utf-8", errors="replace"))
 
     def save_current(self) -> None:
         if not self.current_file:
             return
         content = self.textbox.get("1.0", "end-1c")
         self.current_file.write_text(content, encoding="utf-8")
+
+    def clear(self):
+        self.current_file = None
+
+        self.textbox.delete("1.0", "end")
+        self.textbox.insert(
+            "1.0",
+            "Open a file from Explorer to start editing."
+        )
+
+        self.path_label.configure(text="No file open")
+
+    def set_close_callback(self, callback):
+        self.close_side_callback = callback
+        self.close_side_button.grid()
+
+    def hide_close_button(self):
+        self.close_side_button.grid_remove()
+
+    def _close_side(self):
+        if self.close_side_callback:
+            self.close_side_callback()
 
     def toggle_word_wrap(self) -> None:
         self.word_wrap = bool(self.wrap_switch.get())

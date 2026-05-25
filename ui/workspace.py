@@ -94,7 +94,7 @@ class WorkspacePage(ctk.CTkFrame):
         self.install_gradle_button.configure(state="disabled", text="Installing")
         self.compile_button.configure(state="disabled")
         self.console.write("\nInstalling Gradle...\n")
-        self.build_runner.install_gradle(self._write_console, self._install_finished)
+        self.build_runner.install_gradle(self.workspace_path,self._write_console,self._install_finished)
 
     def _write_console(self, text: str) -> None:
         self.after(0, lambda: self.console.write(text))

@@ -18,8 +18,7 @@ class BuildRunner:
     bundled_gradle_version = "8.8"
 
     def __init__(self) -> None:
-        self.tools_root = Path.cwd() / "tools"
-        self.gradle_root = self.tools_root / "gradle"
+        pass
 
     def is_gradle_available(self, workspace_path: Path | None = None) -> bool:
         return self._resolve_gradle_executable(workspace_path) is not None
@@ -32,10 +31,10 @@ class BuildRunner:
         )
         thread.start()
 
-    def install_gradle(self, on_output: OutputHandler, on_finish: FinishHandler) -> None:
+    def install_gradle(self,workspace_path: Path,on_output: OutputHandler,on_finish: FinishHandler,) -> None:
         thread = threading.Thread(
             target=self._run_install,
-            args=(on_output, on_finish),
+            args=(workspace_path, on_output, on_finish),
             daemon=True,
         )
         thread.start()
@@ -71,43 +70,54 @@ class BuildRunner:
                 on_output(line)
 
         on_finish(process.wait())
-
-    def _run_install(self, on_output: OutputHandler, on_finish: FinishHandler) -> None:
+        
+    def _run_install(self,workspace_path: Path,on_output: OutputHandler,on_finish: FinishHandler,) -> None:
         try:
-            self.gradle_root.mkdir(parents=True, exist_ok=True)
-            zip_path = self.gradle_root / f"gradle-{self.bundled_gradle_version}-bin.zip"
-            target_dir = self.gradle_root / f"gradle-{self.bundled_gradle_version}"
-            url = f"https://services.gradle.org/distributions/gradle-{self.bundled_gradle_version}-bin.zip"
-            on_output(f"> Downloading {url}\n")
-            urllib.request.urlretrieve(url, zip_path)
+            gradle_dir = workspace_path / ".gradle-runtime"
+            gradle_dir.mkdir(parents=True, exist_ok=True)
 
-            for existing in self.gradle_root.glob("gradle-*"):
-                if existing == zip_path:
-                    continue
-                if existing.is_dir():
-                    shutil.rmtree(existing, ignore_errors=True)
-                elif existing.is_file():
-                    existing.unlink(missing_ok=True)
+            zip_path = gradle_dir / f"gradle-{self.bundled_gradle_version}-bin.zip"
+
+            target_dir = gradle_dir / f"gradle-{self.bundled_gradle_version}"
+
+            url = (
+                f"https://services.gradle.org/distributions/"
+                f"gradle-{self.bundled_gradle_version}-bin.zip"
+            )
+
+            on_output(f"> Downloading {url}\n")
+
+            urllib.request.urlretrieve(url, zip_path)
 
             if target_dir.exists():
                 shutil.rmtree(target_dir)
 
             on_output(f"> Extracting to {target_dir}\n")
+
             with zipfile.ZipFile(zip_path) as archive:
-                archive.extractall(self.gradle_root)
+                archive.extractall(gradle_dir)
 
             zip_path.unlink(missing_ok=True)
-            executable = self._bundled_gradle_executable()
-            if executable is None or not executable.exists():
-                on_output("Gradle download finished, but the executable could not be found.\n")
+
+            executable = (
+                target_dir / "bin" / "gradle.bat"
+            )
+
+            if not executable.exists():
+                on_output("Gradle executable not found.\n")
                 on_finish(1)
                 return
 
-            on_output(f"Gradle {self.bundled_gradle_version} installed.\n")
+            on_output(
+                f"Gradle {self.bundled_gradle_version} installed "
+                f"inside workspace.\n"
+            )
+
         except Exception as exc:
             on_output(f"Gradle install failed: {exc}\n")
             on_finish(1)
             return
+
         on_finish(0)
 
     def _compile_command(self, workspace_path: Path) -> list[str]:
@@ -116,27 +126,30 @@ class BuildRunner:
             return [str(executable), "build"]
         return []
 
-    def _resolve_gradle_executable(self, workspace_path: Path | None) -> Path | None:
-        if workspace_path:
-            gradlew = workspace_path / "gradlew.bat"
-            if gradlew.exists():
-                return gradlew
+    def _resolve_gradle_executable(self,workspace_path: Path | None,) -> Path | None:
 
-        bundled = self._bundled_gradle_executable()
-        if bundled and bundled.exists():
+        if not workspace_path:
+            return None
+
+        # Prefer wrapper
+        gradlew = workspace_path / "gradlew.bat"
+
+        if gradlew.exists():
+            return gradlew
+
+        # Fallback local runtime
+        bundled = (
+            workspace_path
+            / ".gradle-runtime"
+            / f"gradle-{self.bundled_gradle_version}"
+            / "bin"
+            / "gradle.bat"
+        )
+
+        if bundled.exists():
             return bundled
 
-        system_gradle = shutil.which("gradle")
-        return Path(system_gradle) if system_gradle else None
-
-    def _bundled_gradle_executable(self) -> Path | None:
-        candidate = self.gradle_root / f"gradle-{self.bundled_gradle_version}" / "bin" / "gradle.bat"
-        return candidate if candidate.exists() else None
+        return None
 
     def _build_env(self) -> dict[str, str]:
-        env = os.environ.copy()
-        bundled = self._bundled_gradle_executable()
-        if bundled:
-            bin_dir = str(bundled.parent)
-            env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
-        return env
+        return os.environ.copy()

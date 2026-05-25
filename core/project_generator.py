@@ -67,23 +67,21 @@ class ProjectGenerator:
 
     def _settings_gradle(self, data: ProjectData) -> str:
         return f"""
-pluginManagement {{
-    repositories {{
-        maven {{ url = 'https://maven.fabricmc.net/' }}
-        gradlePluginPortal()
-    }}
-}}
+    pluginManagement {{
+        repositories {{
 
-dependencyResolutionManagement {{
-    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
-    repositories {{
-        maven {{ url = 'https://maven.fabricmc.net/' }}
-        mavenCentral()
-    }}
-}}
+            maven {{
+                url = 'https://maven.fabricmc.net/'
+            }}
 
-rootProject.name = '{data.name}'
-"""
+            gradlePluginPortal()
+
+            mavenCentral()
+        }}
+    }}
+
+    rootProject.name = '{data.name}'
+    """
 
     def _build_gradle(self, data: ProjectData) -> str:
         return """
@@ -99,10 +97,37 @@ base {
     archivesName = project.archives_base_name
 }
 
+repositories {
+
+    maven {
+        url = 'https://maven.fabricmc.net/'
+    }
+
+    maven {
+        url = 'https://libraries.minecraft.net/'
+    }
+
+    mavenCentral()
+}
+
 dependencies {
+
     minecraft "com.mojang:minecraft:${project.minecraft_version}"
+
     mappings "net.fabricmc:yarn:${project.yarn_mappings}:v2"
+
     modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 17
+}
+
+java {
+    withSourcesJar()
+
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
 }
 """
 

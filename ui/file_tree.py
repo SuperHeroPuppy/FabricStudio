@@ -46,10 +46,38 @@ class FileTree(ctk.CTkFrame):
         self._configure_scrollbar()
 
     def _add_directory(self, path: Path, depth: int) -> None:
-        for child in sorted(path.iterdir(), key=lambda item: (item.is_file(), item.name.lower())):
-            if child.name in {".gradle", "build", ".git", "__pycache__"}:
+        for child in sorted(
+            path.iterdir(),
+            key=lambda item: (item.is_file(), item.name.lower()),
+        ):
+
+            # Fully hidden folders
+            if child.name in {
+                ".gradle",
+                ".gradle-runtime",
+                ".git",
+                "bin",
+                "__pycache__",
+            }:
                 continue
+
+            # Special handling for build/
+            if child.name == "build":
+
+                self._add_row(child, depth)
+
+                libs_dir = child / "libs"
+
+                if libs_dir.exists():
+                    self._add_row(libs_dir, depth + 1)
+
+                    if libs_dir not in self.collapsed_paths:
+                        self._add_directory(libs_dir, depth + 2)
+
+                continue
+
             self._add_row(child, depth)
+
             if child.is_dir() and child not in self.collapsed_paths:
                 self._add_directory(child, depth + 1)
 

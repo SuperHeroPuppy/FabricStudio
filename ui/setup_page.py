@@ -10,6 +10,7 @@ import customtkinter as ctk
 from core.project_generator import ProjectData
 from core.fabric_registry import MINECRAFT_VERSIONS
 from core.fabric_registry import FABRIC_VERSIONS
+from core.tool_info import (TOOL_NAME,TOOL_VERSION,TOOL_BUILD,TOOL_CHANNEL,)
 from ui.theme import COLORS
 
 
@@ -28,7 +29,30 @@ class SetupPage(ctk.CTkFrame):
         header.grid(row=0, column=0, sticky="ew", padx=28, pady=(24, 12))
         header.grid_columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(header, text="Fabric Studio", font=("Segoe UI", 30, "bold")).grid(row=0, column=0, sticky="w")
+        title_frame = ctk.CTkFrame(header, fg_color="transparent")
+        title_frame.grid(row=0, column=0, sticky="w")
+
+        ctk.CTkLabel(
+            title_frame,
+            text=TOOL_NAME,
+            font=("Segoe UI", 30, "bold"),
+        ).pack(side="left")
+
+        version_text = (
+            f"v{TOOL_VERSION} "
+            f"(Build {TOOL_BUILD})"
+        )
+
+        if TOOL_CHANNEL.lower() != "stable":
+            version_text += f" [{TOOL_CHANNEL.upper()}]"
+
+        ctk.CTkLabel(
+            title_frame,
+            text=version_text,
+            text_color=COLORS["muted"],
+            font=("Segoe UI", 13),
+        ).pack(side="left", padx=(10, 2), pady=(10, 0))
+        
         ctk.CTkLabel(
             header,
             text="Create a workspace, reopen earlier ones, and manage project settings from the landing page.",

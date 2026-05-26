@@ -4,6 +4,7 @@ import json
 import shutil
 from pathlib import Path
 from tkinter import filedialog
+from tkinter.scrolledtext import ScrolledText
 
 import customtkinter as ctk
 
@@ -60,7 +61,22 @@ class SetupPage(ctk.CTkFrame):
             font=("Segoe UI", 14),
         ).grid(row=1, column=0, sticky="w", pady=(4, 0))
 
-        ctk.CTkButton(header, text="Open Folder", width=132, command=self._open_folder).grid(row=0, column=1, rowspan=2, sticky="e")
+        button_frame = ctk.CTkFrame(header, fg_color="transparent")
+        button_frame.grid(row=0, column=1, rowspan=2, sticky="e")
+
+        ctk.CTkButton(
+            button_frame,
+            text="Change Logs",
+            width=132,
+            command=self._open_changelog,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            button_frame,
+            text="Open Folder",
+            width=132,
+            command=self._open_folder,
+        ).pack(side="left")
 
         content = ctk.CTkScrollableFrame(self, fg_color="transparent")
         content.grid(row=1, column=0, sticky="nsew", padx=28, pady=(8, 24))
@@ -138,6 +154,196 @@ class SetupPage(ctk.CTkFrame):
         selected = filedialog.askdirectory(title="Open Fabric workspace", initialdir=self.workspaces_root)
         if selected:
             self.on_open_workspace(Path(selected))
+
+    def _open_changelog(self) -> None:
+        changelog_dir = Path("data") / "change_logs"
+        changelog_dir.mkdir(parents=True, exist_ok=True)
+
+        files = sorted(
+            changelog_dir.glob("*.md"),
+            reverse=True,
+            key=lambda p: p.stat().st_mtime,
+        )
+
+        window = ctk.CTkToplevel(self)
+        window.title(f"{TOOL_NAME} Change Logs")
+        window.geometry("1100x720")
+        window.configure(fg_color=COLORS["bg"])
+
+        window.grid_columnconfigure(1, weight=1)
+        window.grid_rowconfigure(0, weight=1)
+
+        sidebar = ctk.CTkFrame(
+            window,
+            width=260,
+            fg_color=COLORS["panel"],
+            corner_radius=0,
+        )
+        sidebar.grid(row=0, column=0, sticky="nsw")
+        sidebar.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            sidebar,
+            text="Change Logs",
+            font=("Segoe UI", 26, "bold"),
+        ).grid(row=0, column=0, sticky="w", padx=20, pady=(20, 10))
+
+        version_list = ctk.CTkScrollableFrame(
+            sidebar,
+            fg_color="transparent",
+        )
+        version_list.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+
+        content_frame = ctk.CTkFrame(
+            window,
+            fg_color=COLORS["bg"],
+            corner_radius=0,
+        )
+        content_frame.grid(row=0, column=1, sticky="nsew")
+
+        content_frame.grid_rowconfigure(1, weight=1)
+        content_frame.grid_columnconfigure(0, weight=1)
+
+        title_label = ctk.CTkLabel(
+            content_frame,
+            text="",
+            font=("Segoe UI", 28, "bold"),
+        )
+        title_label.grid(row=0, column=0, sticky="w", padx=28, pady=(24, 14))
+
+        scroll = ctk.CTkScrollableFrame(
+            content_frame,
+            fg_color=COLORS["panel"],
+            corner_radius=10,
+            border_width=1,
+            border_color=COLORS["border"],
+        )
+
+        scroll.grid(
+            row=1,
+            column=0,
+            sticky="nsew",
+            padx=24,
+            pady=(18, 24),
+        )
+
+        def clear_content():
+            for widget in scroll.winfo_children():
+                widget.destroy()
+
+        def render_markdown(content: str):
+            clear_content()
+
+            lines = content.splitlines()
+
+            for line in lines:
+                stripped = line.strip()
+
+                if not stripped:
+                    ctk.CTkLabel(
+                        scroll,
+                        text="",
+                        height=8,
+                    ).pack(anchor="w")
+                    continue
+
+
+                if stripped.startswith("# "):
+                    ctk.CTkLabel(
+                        scroll,
+                        text=stripped[2:],
+                        font=("Segoe UI", 30, "bold"),
+                        text_color="#ffffff",
+                    ).pack(anchor="w", padx=20, pady=(16, 8))
+
+
+                elif stripped.startswith("## "):
+                    ctk.CTkLabel(
+                        scroll,
+                        text=stripped[3:],
+                        font=("Segoe UI", 22, "bold"),
+                        text_color="#7aa2ff",
+                    ).pack(anchor="w", padx=20, pady=(14, 6))
+
+                elif stripped.startswith("### "):
+                    ctk.CTkLabel(
+                        scroll,
+                        text=stripped[4:],
+                        font=("Segoe UI", 18, "bold"),
+                        text_color="#cccccc",
+                    ).pack(anchor="w", padx=22, pady=(10, 4))
+
+                elif stripped == "---":
+                    divider = ctk.CTkFrame(
+                        scroll,
+                        height=2,
+                        fg_color=COLORS["border"],
+                        corner_radius=999,
+                    )
+
+                    divider.pack(
+                        fill="x",
+                        padx=20,
+                        pady=(14, 14),
+                    )
+
+                elif stripped.startswith("- "):
+                    ctk.CTkLabel(
+                        scroll,
+                        text=f"• {stripped[2:]}",
+                        font=("Segoe UI", 14),
+                        justify="left",
+                        wraplength=760,
+                        anchor="w",
+                    ).pack(anchor="w", padx=34, pady=2)
+
+                else:
+                    ctk.CTkLabel(
+                        scroll,
+                        text=stripped,
+                        font=("Segoe UI", 14),
+                        justify="left",
+                        wraplength=760,
+                        anchor="w",
+                        text_color="#d0d0d0",
+                    ).pack(anchor="w", padx=22, pady=2)
+
+        def load_changelog(path: Path):
+            try:
+                content = path.read_text(encoding="utf-8")
+            except OSError:
+                content = "# Failed to load changelog"
+
+            version_name = path.stem
+
+            title_label.configure(text=version_name)
+
+            render_markdown(content)
+
+
+
+        if not files:
+            ctk.CTkLabel(
+                version_list,
+                text="No changelogs found.",
+                text_color=COLORS["muted"],
+            ).pack(anchor="w", padx=10, pady=10)
+
+        for file in files:
+            btn = ctk.CTkButton(
+                version_list,
+                text=file.stem,
+                height=38,
+                anchor="w",
+                fg_color=COLORS["panel_alt"],
+                hover_color=COLORS["accent"],
+                command=lambda p=file: load_changelog(p),
+            )
+
+            btn.pack(fill="x", padx=6, pady=4)
+
+        if files:
+            load_changelog(files[0])
 
     def refresh_workspace_lists(self) -> None:
         self._clear_panel(self.workspace_list)

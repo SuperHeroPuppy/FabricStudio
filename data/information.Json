@@ -3,15 +3,12 @@
         "name": "FabricStudio",
         "developer": "SuperHeroPuppy",
         "version": "0.0.0",
-        "build": "1",
+        "build": "dev30157",
         "release_channel": "development",
         "release_status": "not released",
-        "minimum_supported_version": "0.0.0",
-        "update_required": false,
         "update_url": "",
         "download_url": "",
-        "changelog_url": "",
-        "last_updated": "2026-05-26T03:24:46-07:00",
+        "last_updated": "2026-05-26T04:11:15-07:00",
         "timezone": "Pacific Daylight Time"
     }
 }

@@ -1,0 +1,18 @@
+{
+  "id": "1.20.1-fabric-generator-1.0.0",
+  "name": "Minecraft 1.20.1 Fabric Generator",
+  "minecraft_version": "1.20.1",
+  "loader": "fabric",
+  "loader_versions": [
+    "0.16.14",
+    "0.16.13",
+    "0.16.12",
+    "0.15.11",
+    "0.15.10",
+    "0.14.24"
+  ],
+  "generator_version": "1.0.0",
+  "module": "generator.py",
+  "callable": "generate_project",
+  "description": "Creates a Fabric workspace for Minecraft 1.20.1."
+}

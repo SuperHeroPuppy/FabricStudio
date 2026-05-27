@@ -4,15 +4,12 @@ import json
 import shutil
 from pathlib import Path
 from tkinter import filedialog
-from tkinter.scrolledtext import ScrolledText
 
 import customtkinter as ctk
 
-from core.project_generator import ProjectData
-from core.fabric_registry import MINECRAFT_VERSIONS
-from core.fabric_registry import FABRIC_VERSIONS
-from core.tool_info import (TOOL_NAME,TOOL_VERSION,TOOL_BUILD,TOOL_CHANNEL,)
-from ui.theme import COLORS
+from core.data_store import COLORS, TOOL_BUILD, TOOL_CHANNEL, TOOL_NAME, TOOL_VERSION, get_fabric_versions
+from core.project_generator import ProjectData, get_supported_minecraft_versions
+from ui.tools.markdown_formatter import render_markdown as render_markdown_content
 
 
 class SetupPage(ctk.CTkFrame):
@@ -93,12 +90,16 @@ class SetupPage(ctk.CTkFrame):
         self.package_root_entry = self._entry(body, "Package Root", 4, "com")
         self.package_name_entry = self._entry(body, "Package Name", 5)
 
-        self.minecraft_menu = self._menu(body, "Minecraft Version", MINECRAFT_VERSIONS, 6)
-        self.minecraft_menu.set("1.20.1")
+        self.minecraft_versions = get_supported_minecraft_versions("fabric")
+        initial_minecraft = self.minecraft_versions[0] if self.minecraft_versions else "1.20.1"
+
+        self.minecraft_menu = self._menu(body, "Minecraft Version", self.minecraft_versions or [initial_minecraft], 6)
+        self.minecraft_menu.set(initial_minecraft)
         self.minecraft_menu.configure(command=self._on_minecraft_changed)
 
-        self.fabric_menu = self._menu(body, "Fabric Loader", FABRIC_VERSIONS["1.20.1"], 7)
-        self.fabric_menu.set(FABRIC_VERSIONS["1.20.1"][0])
+        fabric_versions = get_fabric_versions(initial_minecraft) or ["No Fabric versions found"]
+        self.fabric_menu = self._menu(body, "Fabric Loader", fabric_versions, 7)
+        self.fabric_menu.set(fabric_versions[0])
 
         ctk.CTkButton(body, text="Generate Workspace", height=38, command=self._generate).grid(
             row=8, column=0, columnspan=2, sticky="ew", padx=22, pady=(18, 22)
@@ -132,7 +133,7 @@ class SetupPage(ctk.CTkFrame):
         return menu
 
     def _on_minecraft_changed(self, value: str) -> None:
-        versions = FABRIC_VERSIONS.get(value, ["Generator pending"])
+        versions = get_fabric_versions(value) or ["No Fabric versions found"]
         self.fabric_menu.configure(values=versions)
         self.fabric_menu.set(versions[0])
 
@@ -227,87 +228,6 @@ class SetupPage(ctk.CTkFrame):
             pady=(18, 24),
         )
 
-        def clear_content():
-            for widget in scroll.winfo_children():
-                widget.destroy()
-
-        def render_markdown(content: str):
-            clear_content()
-
-            lines = content.splitlines()
-
-            for line in lines:
-                stripped = line.strip()
-
-                if not stripped:
-                    ctk.CTkLabel(
-                        scroll,
-                        text="",
-                        height=8,
-                    ).pack(anchor="w")
-                    continue
-
-
-                if stripped.startswith("# "):
-                    ctk.CTkLabel(
-                        scroll,
-                        text=stripped[2:],
-                        font=("Segoe UI", 30, "bold"),
-                        text_color="#ffffff",
-                    ).pack(anchor="w", padx=20, pady=(16, 8))
-
-
-                elif stripped.startswith("## "):
-                    ctk.CTkLabel(
-                        scroll,
-                        text=stripped[3:],
-                        font=("Segoe UI", 22, "bold"),
-                        text_color="#7aa2ff",
-                    ).pack(anchor="w", padx=20, pady=(14, 6))
-
-                elif stripped.startswith("### "):
-                    ctk.CTkLabel(
-                        scroll,
-                        text=stripped[4:],
-                        font=("Segoe UI", 18, "bold"),
-                        text_color="#cccccc",
-                    ).pack(anchor="w", padx=22, pady=(10, 4))
-
-                elif stripped == "---":
-                    divider = ctk.CTkFrame(
-                        scroll,
-                        height=2,
-                        fg_color=COLORS["border"],
-                        corner_radius=999,
-                    )
-
-                    divider.pack(
-                        fill="x",
-                        padx=20,
-                        pady=(14, 14),
-                    )
-
-                elif stripped.startswith("- "):
-                    ctk.CTkLabel(
-                        scroll,
-                        text=f"• {stripped[2:]}",
-                        font=("Segoe UI", 14),
-                        justify="left",
-                        wraplength=760,
-                        anchor="w",
-                    ).pack(anchor="w", padx=34, pady=2)
-
-                else:
-                    ctk.CTkLabel(
-                        scroll,
-                        text=stripped,
-                        font=("Segoe UI", 14),
-                        justify="left",
-                        wraplength=760,
-                        anchor="w",
-                        text_color="#d0d0d0",
-                    ).pack(anchor="w", padx=22, pady=2)
-
         def load_changelog(path: Path):
             try:
                 content = path.read_text(encoding="utf-8")
@@ -318,9 +238,7 @@ class SetupPage(ctk.CTkFrame):
 
             title_label.configure(text=version_name)
 
-            render_markdown(content)
-
-
+            render_markdown_content(scroll, content, COLORS)
 
         if not files:
             ctk.CTkLabel(
@@ -489,3 +407,4 @@ class SetupPage(ctk.CTkFrame):
 
     def _save_recent(self, entries: list[str]) -> None:
         self.recent_file.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+

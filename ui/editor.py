@@ -6,7 +6,7 @@ from pathlib import Path
 
 import customtkinter as ctk
 
-from ui.theme import COLORS
+from core.data_store import COLORS
 
 
 class EditorPane(ctk.CTkFrame):

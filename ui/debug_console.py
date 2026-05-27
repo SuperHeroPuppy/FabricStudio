@@ -4,7 +4,7 @@ import re
 
 import customtkinter as ctk
 
-from ui.theme import COLORS
+from core.data_store import COLORS
 
 
 class DebugConsole(ctk.CTkFrame):

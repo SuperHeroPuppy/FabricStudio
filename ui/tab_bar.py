@@ -1,7 +1,7 @@
 import tkinter as tk
 import customtkinter as ctk
 from pathlib import Path
-from ui.theme import COLORS
+from core.data_store import COLORS
 
 
 class TabBar(ctk.CTkFrame):

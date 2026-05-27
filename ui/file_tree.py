@@ -7,7 +7,7 @@ from tkinter import Menu, messagebox, simpledialog
 
 import customtkinter as ctk
 
-from ui.theme import COLORS
+from core.data_store import COLORS
 
 
 class FileTree(ctk.CTkFrame):

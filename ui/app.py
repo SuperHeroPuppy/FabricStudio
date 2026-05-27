@@ -6,7 +6,7 @@ import customtkinter as ctk
 
 from core.project_generator import ProjectData, ProjectGenerator
 from ui.setup_page import SetupPage
-from ui.theme import COLORS, configure_theme
+from core.data_store import COLORS, configure_theme
 from ui.workspace import WorkspacePage
 
 

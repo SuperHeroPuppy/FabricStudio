@@ -10,7 +10,7 @@ from ui.debug_console import DebugConsole
 from ui.file_tree import FileTree
 from ui.tab_bar import TabBar
 from ui.editor_manager import EditorManager
-from ui.theme import COLORS
+from core.data_store import COLORS
 
 
 class WorkspacePage(ctk.CTkFrame):

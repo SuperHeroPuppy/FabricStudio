@@ -16,7 +16,7 @@ from core.data_store import TOOL_BUILD, TOOL_DOWNLOAD_URL, TOOL_UPDATE_URL, TOOL
 
 
 APP_ROOT = Path(__file__).resolve().parent.parent
-MINIMUM_MANAGED_BUILD = "dev73741"
+MINIMUM_MANAGED_BUILD = "dev00001"
 USER_AGENT = "FabricStudio Update Manager"
 
 

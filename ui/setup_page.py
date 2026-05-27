@@ -9,14 +9,23 @@ import customtkinter as ctk
 
 from core.data_store import COLORS, TOOL_BUILD, TOOL_CHANNEL, TOOL_NAME, TOOL_VERSION, get_fabric_versions
 from core.project_generator import ProjectData, get_supported_minecraft_versions
-from ui.tools.markdown_formatter import render_markdown as render_markdown_content
 
 
 class SetupPage(ctk.CTkFrame):
-    def __init__(self, master, on_generate, on_open_workspace, workspaces_root: Path):
+    def __init__(
+        self,
+        master,
+        on_generate,
+        on_open_workspace,
+        on_open_changelog,
+        on_open_update_manager,
+        workspaces_root: Path,
+    ):
         super().__init__(master, fg_color=COLORS["bg"])
         self.on_generate = on_generate
         self.on_open_workspace = on_open_workspace
+        self.on_open_changelog = on_open_changelog
+        self.on_open_update_manager = on_open_update_manager
         self.workspaces_root = workspaces_root
         self.recent_file = self.workspaces_root / ".recent_workspaces.json"
 
@@ -65,7 +74,14 @@ class SetupPage(ctk.CTkFrame):
             button_frame,
             text="Change Logs",
             width=132,
-            command=self._open_changelog,
+            command=self.on_open_changelog,
+        ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkButton(
+            button_frame,
+            text="Update Manager",
+            width=150,
+            command=self.on_open_update_manager,
         ).pack(side="left", padx=(0, 8))
 
         ctk.CTkButton(
@@ -155,113 +171,6 @@ class SetupPage(ctk.CTkFrame):
         selected = filedialog.askdirectory(title="Open Fabric workspace", initialdir=self.workspaces_root)
         if selected:
             self.on_open_workspace(Path(selected))
-
-    def _open_changelog(self) -> None:
-        changelog_dir = Path("data") / "change_logs"
-        changelog_dir.mkdir(parents=True, exist_ok=True)
-
-        files = sorted(
-            changelog_dir.glob("*.md"),
-            reverse=True,
-            key=lambda p: p.stat().st_mtime,
-        )
-
-        window = ctk.CTkToplevel(self)
-        window.title(f"{TOOL_NAME} Change Logs")
-        window.geometry("1100x720")
-        window.configure(fg_color=COLORS["bg"])
-
-        window.grid_columnconfigure(1, weight=1)
-        window.grid_rowconfigure(0, weight=1)
-
-        sidebar = ctk.CTkFrame(
-            window,
-            width=260,
-            fg_color=COLORS["panel"],
-            corner_radius=0,
-        )
-        sidebar.grid(row=0, column=0, sticky="nsw")
-        sidebar.grid_rowconfigure(1, weight=1)
-
-        ctk.CTkLabel(
-            sidebar,
-            text="Change Logs",
-            font=("Segoe UI", 26, "bold"),
-        ).grid(row=0, column=0, sticky="w", padx=20, pady=(20, 10))
-
-        version_list = ctk.CTkScrollableFrame(
-            sidebar,
-            fg_color="transparent",
-        )
-        version_list.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
-
-        content_frame = ctk.CTkFrame(
-            window,
-            fg_color=COLORS["bg"],
-            corner_radius=0,
-        )
-        content_frame.grid(row=0, column=1, sticky="nsew")
-
-        content_frame.grid_rowconfigure(1, weight=1)
-        content_frame.grid_columnconfigure(0, weight=1)
-
-        title_label = ctk.CTkLabel(
-            content_frame,
-            text="",
-            font=("Segoe UI", 28, "bold"),
-        )
-        title_label.grid(row=0, column=0, sticky="w", padx=28, pady=(24, 14))
-
-        scroll = ctk.CTkScrollableFrame(
-            content_frame,
-            fg_color=COLORS["panel"],
-            corner_radius=10,
-            border_width=1,
-            border_color=COLORS["border"],
-        )
-
-        scroll.grid(
-            row=1,
-            column=0,
-            sticky="nsew",
-            padx=24,
-            pady=(18, 24),
-        )
-
-        def load_changelog(path: Path):
-            try:
-                content = path.read_text(encoding="utf-8")
-            except OSError:
-                content = "# Failed to load changelog"
-
-            version_name = path.stem
-
-            title_label.configure(text=version_name)
-
-            render_markdown_content(scroll, content, COLORS)
-
-        if not files:
-            ctk.CTkLabel(
-                version_list,
-                text="No changelogs found.",
-                text_color=COLORS["muted"],
-            ).pack(anchor="w", padx=10, pady=10)
-
-        for file in files:
-            btn = ctk.CTkButton(
-                version_list,
-                text=file.stem,
-                height=38,
-                anchor="w",
-                fg_color=COLORS["panel_alt"],
-                hover_color=COLORS["accent"],
-                command=lambda p=file: load_changelog(p),
-            )
-
-            btn.pack(fill="x", padx=6, pady=4)
-
-        if files:
-            load_changelog(files[0])
 
     def refresh_workspace_lists(self) -> None:
         self._clear_panel(self.workspace_list)

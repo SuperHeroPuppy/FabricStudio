@@ -44,6 +44,8 @@ TOOL_NAME = TOOL_INFO["name"]
 TOOL_VERSION = TOOL_INFO["version"]
 TOOL_BUILD = TOOL_INFO["build"]
 TOOL_CHANNEL = TOOL_INFO["release_channel"]
+TOOL_UPDATE_URL = TOOL_INFO["update_url"]
+TOOL_DOWNLOAD_URL = TOOL_INFO["download_url"]
 
 THEME = get_data_section("theme.json")
 CUSTOMTKINTER = THEME["customtkinter"]

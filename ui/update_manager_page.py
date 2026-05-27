@@ -59,7 +59,7 @@ class UpdateManagerPage(ctk.CTkToplevel):
             text="Download",
             width=160,
             state="disabled",
-            command=self._download_selected,
+            command=self._install_selected,
         )
         self.action_button.grid(row=0, column=1, sticky="e", padx=(12, 0))
 
@@ -129,27 +129,26 @@ class UpdateManagerPage(ctk.CTkToplevel):
             state="normal" if can_install else "disabled",
         )
 
-    def _download_selected(self) -> None:
+    def _install_selected(self) -> None:
         if not self.selected_update:
             return
         update = self.selected_update
         self.action_button.configure(state="disabled")
-        self._set_status(f"Downloading {update.label} from GitHub...")
-        threading.Thread(target=lambda: self._download(update), daemon=True).start()
+        self._set_status(f"Installing {update.label} from GitHub...")
+        threading.Thread(target=lambda: self._install(update), daemon=True).start()
 
-    def _download(self, update: UpdateBuild) -> None:
+    def _install(self, update: UpdateBuild) -> None:
         try:
-            destination = self.update_manager.download_update(update)
+            archive_path = self.update_manager.install_update(update)
         except Exception as exc:
-            message = f"Download failed: {exc}"
+            message = f"Install failed: {exc}"
             self.after(0, lambda: self._show_error(message))
             return
-        self.after(0, lambda: self._download_finished(destination))
+        self.after(0, lambda: self._install_started(archive_path))
 
-    def _download_finished(self, destination) -> None:
-        self._set_status(f"Downloaded update to {destination}")
-        if self.selected_update:
-            self.action_button.configure(state="normal")
+    def _install_started(self, archive_path) -> None:
+        self._set_status(f"Downloaded {archive_path.name}. FabricStudio will close and apply the update.")
+        self.after(800, self._shutdown_app)
 
     def _show_error(self, message: str) -> None:
         self.title_label.configure(text="Update Manager")
@@ -158,6 +157,10 @@ class UpdateManagerPage(ctk.CTkToplevel):
 
     def _set_status(self, message: str) -> None:
         self.status_label.configure(text=message)
+
+    def _shutdown_app(self) -> None:
+        root = self.master or self
+        root.destroy()
 
 
 class StartupUpdatePage(ctk.CTkFrame):
@@ -202,10 +205,10 @@ class StartupUpdatePage(ctk.CTkFrame):
 
         self.download_button = ctk.CTkButton(
             actions,
-            text="Download Latest",
+            text="Install Latest",
             width=150,
             state="disabled",
-            command=self._download_latest,
+            command=self._install_latest,
         )
         self.download_button.grid(row=0, column=1, padx=(8, 0))
 
@@ -242,22 +245,29 @@ class StartupUpdatePage(ctk.CTkFrame):
         self.status_label.configure(text=message)
         self.download_button.configure(state="disabled")
 
-    def _download_latest(self) -> None:
+    def _install_latest(self) -> None:
         if not self.update:
             return
         update = self.update
         self.download_button.configure(state="disabled")
-        self.status_label.configure(text=f"Downloading {update.build} from GitHub...")
-        threading.Thread(target=lambda: self._download(update), daemon=True).start()
+        self.status_label.configure(text=f"Installing {update.build} from GitHub...")
+        threading.Thread(target=lambda: self._install(update), daemon=True).start()
 
-    def _download(self, update: UpdateBuild) -> None:
+    def _install(self, update: UpdateBuild) -> None:
         try:
-            destination = self.update_manager.download_update(update)
+            archive_path = self.update_manager.install_update(update)
         except Exception as exc:
-            message = f"Download failed: {exc}"
+            message = f"Install failed: {exc}"
             self.after(0, lambda: self.show_error(message))
             return
-        self.after(0, lambda: self.status_label.configure(text=f"Downloaded update to {destination}"))
+        self.after(0, lambda: self._install_started(archive_path))
+
+    def _install_started(self, archive_path) -> None:
+        self.status_label.configure(text=f"Downloaded {archive_path.name}. FabricStudio will close and apply the update.")
+        self.after(800, self._shutdown_app)
+
+    def _shutdown_app(self) -> None:
+        self.master.destroy()
 
 
 def changelog_preview(changelog: str, max_lines: int = 18) -> str:

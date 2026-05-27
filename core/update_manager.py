@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import subprocess
+import sys
+import textwrap
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -11,6 +15,7 @@ from typing import Any
 from core.data_store import TOOL_BUILD, TOOL_DOWNLOAD_URL, TOOL_UPDATE_URL, TOOL_VERSION
 
 
+APP_ROOT = Path(__file__).resolve().parent.parent
 MINIMUM_MANAGED_BUILD = "dev73741"
 USER_AGENT = "FabricStudio Update Manager"
 
@@ -42,7 +47,8 @@ class UpdateManager:
         self.download_url = download_url
         self.current_version = current_version
         self.current_build = current_build
-        self.updates_dir = updates_dir or Path.cwd() / "updates"
+        self.app_root = APP_ROOT
+        self.updates_dir = updates_dir or self.app_root / "updates"
         self.repository, self.branch = parse_github_source(update_url, download_url)
 
     def check_latest_update(self) -> UpdateBuild | None:
@@ -100,9 +106,9 @@ class UpdateManager:
     def install_label(self, build: str) -> str:
         comparison = compare_builds(build, self.current_build)
         if comparison > 0:
-            return "Download Update"
+            return "Install Update"
         if comparison < 0:
-            return "Download Downgrade"
+            return "Install Downgrade"
         return "Current Build"
 
     def download_update(self, update: UpdateBuild) -> Path:
@@ -111,6 +117,20 @@ class UpdateManager:
         destination = self.updates_dir / safe_filename(filename)
         self._download_file(update.download_url or self._branch_zip_url(), destination)
         return destination
+
+    def install_update(self, update: UpdateBuild) -> Path:
+        archive_path = self.download_update(update)
+        updater_path = self._write_updater_script()
+        command = [
+            sys.executable,
+            str(updater_path),
+            str(archive_path),
+            str(self.app_root),
+            str(os.getpid()),
+        ]
+        creationflags = subprocess.DETACHED_PROCESS if os.name == "nt" else 0
+        subprocess.Popen(command, cwd=self.app_root, creationflags=creationflags)
+        return archive_path
 
     def _fetch_remote_information(self) -> dict[str, Any]:
         return json.loads(self._read_url(self._information_url()))
@@ -174,6 +194,12 @@ class UpdateManager:
         request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
         with urllib.request.urlopen(request, timeout=timeout) as response:
             destination.write_bytes(response.read())
+
+    def _write_updater_script(self) -> Path:
+        self.updates_dir.mkdir(parents=True, exist_ok=True)
+        script_path = self.updates_dir / "apply_update.py"
+        script_path.write_text(UPDATER_SCRIPT, encoding="utf-8")
+        return script_path
 
 
 def parse_changelog_name(filename: str) -> tuple[str, str]:
@@ -243,3 +269,112 @@ def normalize_download_url(download_url: str, repository: str, branch: str) -> s
     if "github.com" in download_url and repository:
         return f"https://github.com/{repository}/archive/refs/heads/{branch}.zip"
     return download_url.rstrip("/") + ".zip"
+
+
+UPDATER_SCRIPT = textwrap.dedent(
+    r'''
+    from __future__ import annotations
+
+    import ctypes
+    import os
+    import shutil
+    import sys
+    import time
+    import zipfile
+    from pathlib import Path
+
+
+    PRESERVE_NAMES = {"workspaces", "updates", ".git"}
+
+
+    def wait_for_parent(pid: int) -> None:
+        if pid <= 0:
+            time.sleep(2)
+            return
+
+        if os.name == "nt":
+            synchronize = 0x00100000
+            handle = ctypes.windll.kernel32.OpenProcess(synchronize, False, pid)
+            if handle:
+                ctypes.windll.kernel32.WaitForSingleObject(handle, 60000)
+                ctypes.windll.kernel32.CloseHandle(handle)
+                return
+
+        for _ in range(120):
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                return
+            time.sleep(0.5)
+
+
+    def remove_path(path: Path) -> None:
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        elif path.exists():
+            path.unlink()
+
+
+    def copy_path(source: Path, destination: Path) -> None:
+        if source.is_dir() and not source.is_symlink():
+            shutil.copytree(source, destination)
+        else:
+            shutil.copy2(source, destination)
+
+
+    def find_source_root(staging_dir: Path) -> Path:
+        children = [item for item in staging_dir.iterdir()]
+        if len(children) == 1 and children[0].is_dir():
+            return children[0]
+        return staging_dir
+
+
+    def apply_update(archive_path: Path, install_root: Path, parent_pid: int) -> None:
+        wait_for_parent(parent_pid)
+
+        staging_dir = install_root / "updates" / "_staging"
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir)
+        staging_dir.mkdir(parents=True, exist_ok=True)
+
+        with zipfile.ZipFile(archive_path, "r") as archive:
+            archive.extractall(staging_dir)
+
+        source_root = find_source_root(staging_dir)
+
+        for item in install_root.iterdir():
+            if item.name in PRESERVE_NAMES:
+                continue
+            remove_path(item)
+
+        for item in source_root.iterdir():
+            if item.name in PRESERVE_NAMES:
+                continue
+            target = install_root / item.name
+            if target.exists():
+                remove_path(target)
+            copy_path(item, target)
+
+        if archive_path.exists():
+            archive_path.unlink()
+        if staging_dir.exists():
+            shutil.rmtree(staging_dir)
+
+        script_path = Path(__file__)
+        try:
+            script_path.unlink()
+        except OSError:
+            pass
+
+        updates_dir = install_root / "updates"
+        try:
+            if updates_dir.exists() and not any(updates_dir.iterdir()):
+                updates_dir.rmdir()
+        except OSError:
+            pass
+
+
+    if __name__ == "__main__":
+        apply_update(Path(sys.argv[1]), Path(sys.argv[2]), int(sys.argv[3]))
+    '''
+).lstrip()

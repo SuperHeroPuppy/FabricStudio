@@ -1,3 +1,7 @@
+# data_store.py
+# developer: SuperHeroPuppy
+# version: 1.0.0
+
 from __future__ import annotations
 
 import json

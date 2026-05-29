@@ -1,3 +1,7 @@
+# workspace.py
+# developer: SuperHeroPuppy
+# version: 1.0.0
+
 from __future__ import annotations
 
 import tkinter as tk
@@ -28,10 +32,6 @@ class WorkspacePage(ctk.CTkFrame):
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
-
-        # =========================================================
-        # TOP BAR
-        # =========================================================
 
         top = ctk.CTkFrame(
             self,
@@ -102,10 +102,6 @@ class WorkspacePage(ctk.CTkFrame):
             pady=8,
         )
 
-        # =========================================================
-        # MAIN SPLIT AREA
-        # =========================================================
-
         self.main_pane = tk.PanedWindow(
             self,
             orient=tk.HORIZONTAL,
@@ -121,10 +117,6 @@ class WorkspacePage(ctk.CTkFrame):
             sticky="nsew",
         )
 
-        # =========================================================
-        # FILE TREE
-        # =========================================================
-
         self.tree = FileTree(
             self.main_pane,
             self._open_file,
@@ -135,10 +127,6 @@ class WorkspacePage(ctk.CTkFrame):
             minsize=180,
             width=280,
         )
-
-        # =========================================================
-        # RIGHT SIDE CONTAINER
-        # =========================================================
 
         editor_console_frame = ctk.CTkFrame(
             self.main_pane,
@@ -151,10 +139,6 @@ class WorkspacePage(ctk.CTkFrame):
             minsize=360,
         )
 
-        # =========================================================
-        # TAB BAR
-        # =========================================================
-
         self.tab_bar = TabBar(
             editor_console_frame,
             self._select_file,
@@ -166,10 +150,6 @@ class WorkspacePage(ctk.CTkFrame):
             fill="x",
             side="top",
         )
-
-        # =========================================================
-        # EDITOR / CONSOLE SPLIT
-        # =========================================================
 
         self.editor_pane = tk.PanedWindow(
             editor_console_frame,
@@ -186,10 +166,6 @@ class WorkspacePage(ctk.CTkFrame):
             side="top",
         )
 
-        # =========================================================
-        # EDITORS
-        # =========================================================
-
         self.editor_manager = EditorManager(
             self.editor_pane
         )
@@ -200,9 +176,6 @@ class WorkspacePage(ctk.CTkFrame):
             height=420,
         )
 
-        # =========================================================
-        # DEBUG CONSOLE
-        # =========================================================
 
         self.console = DebugConsole(
             self.editor_pane
@@ -215,10 +188,6 @@ class WorkspacePage(ctk.CTkFrame):
         )
 
         self.refresh_gradle_state()
-
-    # =============================================================
-    # FILE ACTIONS
-    # =============================================================
 
     def _split_file(self, path: Path):
 
@@ -261,10 +230,6 @@ class WorkspacePage(ctk.CTkFrame):
 
         if not self.open_files:
             self.editor_manager.clear_all()
-
-    # =============================================================
-    # BUILDING
-    # =============================================================
 
     def compile_workspace(self) -> None:
 
@@ -319,10 +284,6 @@ class WorkspacePage(ctk.CTkFrame):
             self._write_console,
             self._install_finished,
         )
-
-    # =============================================================
-    # CONSOLE
-    # =============================================================
 
     def _write_console(self, text: str) -> None:
 
@@ -382,10 +343,6 @@ class WorkspacePage(ctk.CTkFrame):
             self.refresh_gradle_state()
 
         self.after(0, finish)
-
-    # =============================================================
-    # GRADLE STATE
-    # =============================================================
 
     def refresh_gradle_state(self) -> None:
 

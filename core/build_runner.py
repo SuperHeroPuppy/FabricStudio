@@ -1,3 +1,7 @@
+# build_runner.py
+# developer: SuperHeroPuppy
+# version: 1.0.0
+
 from __future__ import annotations
 
 import os

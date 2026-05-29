@@ -1,6 +1,11 @@
+# setup_page.py
+# developer: SuperHeroPuppy
+# version: 1.0.0
+
 from __future__ import annotations
 
 import json
+
 import shutil
 from pathlib import Path
 from tkinter import filedialog

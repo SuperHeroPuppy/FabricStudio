@@ -25,9 +25,11 @@ To run FabricStudio, you need:
 - Python 3.13 or newer (Tested 3.13.13)
 - Java (required for Minecraft and Fabric mod development)
 - Python package:
-  - customtkinter
+  - customtkinter,
+  - pillow
 
 Install dependencies:
 
 ```bash
 pip install customtkinter
+pip install pillow

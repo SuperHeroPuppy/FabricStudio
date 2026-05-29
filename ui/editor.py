@@ -1,8 +1,14 @@
+# editor.py
+# developer: SuperHeroPuppy
+# version: 1.0.1
+
 from __future__ import annotations
 
+from importlib.resources import path
 import keyword
 import re
 from pathlib import Path
+from ui.texture_viewer import TextureViewer
 
 import customtkinter as ctk
 
@@ -48,19 +54,19 @@ class EditorPane(ctk.CTkFrame):
 
         self.close_side_button.grid_remove()
 
-        self.textbox = ctk.CTkTextbox(
-            self,
-            fg_color="#0f1117",
-            text_color=COLORS["text"],
-            border_color=COLORS["border"],
-            border_width=1,
-            font=("Consolas", 13),
-            wrap="none",
-            undo=True,
-        )
-        self.textbox.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
-        self.textbox.insert("1.0", "Open a file from Explorer to start editing.")
-        self.textbox.bind("<KeyRelease>", self._queue_highlight)
+        self.content_frame = ctk.CTkFrame( self, fg_color="transparent", ) 
+        self.content_frame.grid( row=1, column=0, sticky="nsew", )
+        self.content_frame.grid_rowconfigure(0, weight=1) 
+        self.content_frame.grid_columnconfigure(0, weight=1)
+
+        self.textbox = ctk.CTkTextbox( self.content_frame, fg_color="#0f1117", text_color=COLORS["text"], border_color=COLORS["border"], border_width=1, font=("Consolas", 13), wrap="none", undo=True, )
+        self.textbox.grid( row=0, column=0, sticky="nsew", padx=10, pady=10, )
+        self.textbox.insert( "1.0", "Open a file from Explorer to start editing." )
+        self.textbox.bind( "<KeyRelease>", self._queue_highlight, )
+        
+        self.texture_viewer = TextureViewer( self.content_frame )
+        self.texture_viewer.grid( row=0, column=0, sticky="nsew", )
+        self.texture_viewer.grid_remove() 
         self._configure_tags()
 
     def load_content(self, path: Path, content: str) -> None:
@@ -71,7 +77,36 @@ class EditorPane(ctk.CTkFrame):
         self._highlight_syntax()
 
     def open_file(self, path: Path) -> None:
-        self.load_content(path, path.read_text(encoding="utf-8", errors="replace"))
+
+        self.current_file = path
+
+        suffix = path.suffix.lower()
+
+        self.path_label.configure(
+            text=str(path)
+        )
+
+        if suffix in {".png"}:
+
+            self.textbox.grid_remove()
+
+            self.texture_viewer.grid()
+
+            self.texture_viewer.open_texture(path)
+
+            return
+
+        self.texture_viewer.grid_remove()
+
+        self.textbox.grid()
+
+        content = path.read_text(
+            encoding="utf-8",
+            errors="replace",
+        )
+
+        self.load_content(path, content)
+
 
     def save_current(self) -> None:
         if not self.current_file:
@@ -81,6 +116,9 @@ class EditorPane(ctk.CTkFrame):
 
     def clear(self):
         self.current_file = None
+
+        self.texture_viewer.grid_remove() 
+        self.textbox.grid()
 
         self.textbox.delete("1.0", "end")
         self.textbox.insert(

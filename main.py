@@ -1,3 +1,7 @@
+# main.py
+# developer: SuperHeroPuppy
+# version: 1.0.0
+
 from ui.app import FabricStudioApp
 
 

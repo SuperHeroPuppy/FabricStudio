@@ -1,3 +1,7 @@
+# update_manager_page.py
+# developer: SuperHeroPuppy
+# version: 1.0.0
+
 from __future__ import annotations
 
 import threading

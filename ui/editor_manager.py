@@ -1,3 +1,7 @@
+# editor_manager.py
+# developer: SuperHeroPuppy
+# version: 1.0.0
+
 import customtkinter as ctk
 from pathlib import Path
 

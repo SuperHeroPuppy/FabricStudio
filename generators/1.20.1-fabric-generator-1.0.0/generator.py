@@ -1,3 +1,8 @@
+# generator.py
+# developer: SuperHeroPuppy
+# version: 1.0.0
+# minecraft: fabric 1.20.1
+
 from __future__ import annotations
 
 import json

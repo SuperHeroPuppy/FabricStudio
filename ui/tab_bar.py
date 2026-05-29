@@ -1,3 +1,7 @@
+# tab_bar.py
+# developer: SuperHeroPuppy
+# version: 1.0.0
+
 import tkinter as tk
 import customtkinter as ctk
 from pathlib import Path

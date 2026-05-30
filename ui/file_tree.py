@@ -12,6 +12,7 @@ from tkinter import Menu, messagebox, simpledialog
 import customtkinter as ctk
 
 from core.data_store import COLORS
+from ui.theme import theme_menu
 
 
 class FileTree(ctk.CTkFrame):
@@ -21,6 +22,7 @@ class FileTree(ctk.CTkFrame):
         self.root_path: Path | None = None
         self.collapsed_paths: set[Path] = set()
         self.menu = Menu(self, tearoff=0)
+        theme_menu(self.menu)
         self.menu_target: Path | None = None
 
         self.grid_rowconfigure(1, weight=1)
@@ -62,6 +64,7 @@ class FileTree(ctk.CTkFrame):
                 ".git",
                 "bin",
                 "__pycache__",
+                "generated",
             }:
                 continue
 

@@ -28,9 +28,18 @@ class BuildRunner:
         return self._resolve_gradle_executable(workspace_path) is not None
 
     def compile(self, workspace_path: Path, on_output: OutputHandler, on_finish: FinishHandler) -> None:
+        self.run_gradle_task(workspace_path, "build", on_output, on_finish)
+
+    def run_gradle_task(
+        self,
+        workspace_path: Path,
+        task: str,
+        on_output: OutputHandler,
+        on_finish: FinishHandler,
+    ) -> None:
         thread = threading.Thread(
-            target=self._run_compile,
-            args=(workspace_path, on_output, on_finish),
+            target=self._run_gradle_task,
+            args=(workspace_path, task, on_output, on_finish),
             daemon=True,
         )
         thread.start()
@@ -43,11 +52,17 @@ class BuildRunner:
         )
         thread.start()
 
-    def _run_compile(self, workspace_path: Path, on_output: OutputHandler, on_finish: FinishHandler) -> None:
-        command = self._compile_command(workspace_path)
+    def _run_gradle_task(
+        self,
+        workspace_path: Path,
+        task: str,
+        on_output: OutputHandler,
+        on_finish: FinishHandler,
+    ) -> None:
+        command = self._gradle_command(workspace_path, task)
         if not command:
             on_output("No Gradle executable was found.\n")
-            on_output("Install Gradle from the toolbar or add a Gradle wrapper to this workspace to compile inside Fabric Studio.\n")
+            on_output("Install Gradle from the toolbar or add a Gradle wrapper to this workspace to run Gradle tasks inside Fabric Studio.\n")
             on_finish(1)
             return
         on_output(f"> {' '.join(command)}\n")
@@ -124,10 +139,10 @@ class BuildRunner:
 
         on_finish(0)
 
-    def _compile_command(self, workspace_path: Path) -> list[str]:
+    def _gradle_command(self, workspace_path: Path, task: str) -> list[str]:
         executable = self._resolve_gradle_executable(workspace_path)
         if executable:
-            return [str(executable), "build"]
+            return [str(executable), task]
         return []
 
     def _resolve_gradle_executable(self,workspace_path: Path | None,) -> Path | None:

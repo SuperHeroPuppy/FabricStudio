@@ -14,8 +14,10 @@ from core.project_generator import ProjectData, ProjectGenerator
 from core.update_manager import UpdateManager
 from ui.changelog_page import ChangelogPage
 from ui.setup_page import SetupPage
+from ui.theme import apply_tk_theme, theme_window
 from ui.update_manager_page import StartupUpdatePage, UpdateManagerPage
 from ui.workspace import WorkspacePage
+from ui.window_utils import show_on_top
 
 
 class FabricStudioApp(ctk.CTk):
@@ -26,7 +28,8 @@ class FabricStudioApp(ctk.CTk):
         self.title("Fabric Studio")
         self.geometry("1100x720")
         self.minsize(980, 620)
-        self.configure(fg_color=COLORS["bg"])
+        theme_window(self)
+        apply_tk_theme(self)
         self.workspaces_root = Path.cwd() / "workspaces"
         self.workspaces_root.mkdir(exist_ok=True)
         self.update_manager = UpdateManager()
@@ -107,6 +110,7 @@ class FabricStudioApp(ctk.CTk):
         window = ctk.CTkToplevel(self)
         window.title("Fabric Studio")
         window.geometry("360x160")
-        window.transient(self)
+        theme_window(window)
+        show_on_top(window, self)
         ctk.CTkLabel(window, text=message, wraplength=300).pack(expand=True, padx=20, pady=(22, 10))
         ctk.CTkButton(window, text="OK", width=80, command=window.destroy).pack(pady=(0, 18))

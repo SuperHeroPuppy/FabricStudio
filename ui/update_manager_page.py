@@ -10,7 +10,9 @@ import customtkinter as ctk
 
 from core.data_store import COLORS, TOOL_BUILD, TOOL_NAME, TOOL_VERSION
 from core.update_manager import UpdateBuild, UpdateManager, compare_builds
+from ui.theme import theme_window
 from ui.tools.markdown_formatter import render_markdown
+from ui.window_utils import show_on_top
 
 
 class UpdateManagerPage(ctk.CTkToplevel):
@@ -21,7 +23,8 @@ class UpdateManagerPage(ctk.CTkToplevel):
 
         self.title(f"{TOOL_NAME} Update Manager")
         self.geometry("1100x720")
-        self.configure(fg_color=COLORS["bg"])
+        theme_window(self)
+        show_on_top(self, master)
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)

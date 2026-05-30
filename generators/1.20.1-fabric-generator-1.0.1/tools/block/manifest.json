@@ -1,0 +1,22 @@
+{
+    "id": "block",
+    "name": "Block",
+    "description": "Generates a basic block.",
+    "supported": false,
+
+    "forms": [
+        {
+            "id": "registry_name",
+            "label": "Registry Name",
+            "type": "string",
+            "placeholder": "diamond"
+        },
+
+        {
+            "id": "display_name",
+            "label": "Display Name",
+            "type": "string",
+            "placeholder": "Diamond"
+        }
+    ]
+}

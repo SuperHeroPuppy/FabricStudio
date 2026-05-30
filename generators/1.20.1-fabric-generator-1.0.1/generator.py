@@ -1,6 +1,6 @@
 # generator.py
 # developer: SuperHeroPuppy
-# version: 1.0.0
+# version: 1.0.1
 # minecraft: fabric 1.20.1
 
 from __future__ import annotations
@@ -29,6 +29,11 @@ def generate_project(data: Any, workspace_root: Path, spec: Any) -> Path:
     _write(project_path / "build.gradle", _build_gradle())
     _write(project_path / "gradle.properties", _gradle_properties(data))
     _write(resources_root / "fabric.mod.json", _fabric_mod_json(data))
+
+    assets_root = resources_root / "assets" / data.mod_id
+    (assets_root / "textures" / "item").mkdir(parents=True, exist_ok=True)
+    (assets_root / "textures" / "block").mkdir(parents=True, exist_ok=True)
+
     _write(java_root / f"{_class_name(data.mod_id)}.java", _main_class(data))
     _write(project_path / "project_info.json", _project_info(data, spec))
 
@@ -160,16 +165,26 @@ public class {class_name} implements ModInitializer {{
 
 def _project_info(data: Any, spec: Any) -> str:
     payload = asdict(data)
-    payload["created_at"] = datetime.now().isoformat(timespec="seconds")
+
+    payload["created_at"] = datetime.now().isoformat(
+        timespec="seconds"
+    )
+
     payload["generator"] = {
         "id": spec.id,
         "name": spec.name,
         "version": spec.generator_version,
         "loader": spec.loader,
         "minecraft_version": spec.minecraft_version,
-    }
-    return json.dumps(payload, indent=2)
 
+        # IMPORTANT
+        "root": str(spec.root),
+    }
+
+    return json.dumps(
+        payload,
+        indent=2,
+    )
 
 def _class_name(mod_id: str) -> str:
     return "".join(part.capitalize() for part in mod_id.split("_")) + "Mod"

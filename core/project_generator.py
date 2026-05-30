@@ -61,7 +61,10 @@ class ProjectGenerator:
         self._validate_generator_data(data, spec)
         module = self._load_module(spec)
         generate_project = self._get_generate_callable(module, spec)
-        return generate_project(data, self.workspace_root, spec)
+
+        result = generate_project(data, self.workspace_root, spec)
+
+        return result
 
     def _validate_common(self, data: ProjectData) -> None:
         if not data.name.strip():
@@ -175,3 +178,4 @@ def get_supported_minecraft_versions(loader: str = "fabric") -> list[str]:
         seen.add(spec.minecraft_version)
         versions.append(spec.minecraft_version)
     return versions
+

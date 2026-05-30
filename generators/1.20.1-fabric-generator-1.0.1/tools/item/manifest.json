@@ -1,0 +1,105 @@
+{
+    "id": "item",
+    "name": "Item",
+    "description": "Generates a basic item.",
+    "supported": true,
+
+    "forms": [
+        {
+            "id": "registry_name",
+            "label": "Registry Name",
+            "type": "string",
+            "placeholder": "diamond"
+        },
+
+        {
+            "id": "display_name",
+            "label": "Display Name",
+            "type": "string",
+            "placeholder": "Diamond"
+        },
+
+        {
+            "id": "texture",
+            "label": "Texture",
+            "type": "texture"
+        },
+
+        {
+            "id": "food_enabled",
+            "label": "Add Food Attachment",
+            "type": "boolean",
+            "default": false
+        },
+
+        {
+            "id": "nutrition",
+            "label": "Sustenance",
+            "type": "number",
+            "default": 4,
+            "visible_if": {
+                "field": "food_enabled",
+                "equals": true
+            }
+        },
+
+        {
+            "id": "saturation_modifier",
+            "label": "Saturation Modifier",
+            "type": "number",
+            "default": 0.3,
+            "visible_if": {
+                "field": "food_enabled",
+                "equals": true
+            }
+        },
+
+        {
+            "id": "use_animation",
+            "label": "Use Animation",
+            "type": "select",
+            "values": [
+                "eat",
+                "drink"
+            ],
+            "default": "eat",
+            "visible_if": {
+                "field": "food_enabled",
+                "equals": true
+            }
+        },
+
+        {
+            "id": "use_duration_ticks",
+            "label": "Animation Duration (Ticks)",
+            "type": "number",
+            "default": 32,
+            "visible_if": {
+                "field": "food_enabled",
+                "equals": true
+            }
+        },
+
+        {
+            "id": "always_edible",
+            "label": "Always Edible",
+            "type": "boolean",
+            "default": false,
+            "visible_if": {
+                "field": "food_enabled",
+                "equals": true
+            }
+        },
+
+        {
+            "id": "pet_food",
+            "label": "Can Be Fed To Pets",
+            "type": "boolean",
+            "default": false,
+            "visible_if": {
+                "field": "food_enabled",
+                "equals": true
+            }
+        }
+    ]
+}

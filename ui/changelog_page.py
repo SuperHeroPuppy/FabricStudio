@@ -9,7 +9,9 @@ from pathlib import Path
 import customtkinter as ctk
 
 from core.data_store import COLORS, TOOL_NAME
+from ui.theme import theme_window
 from ui.tools.markdown_formatter import render_markdown
+from ui.window_utils import show_on_top
 
 
 class ChangelogPage(ctk.CTkToplevel):
@@ -17,7 +19,8 @@ class ChangelogPage(ctk.CTkToplevel):
         super().__init__(master)
         self.title(f"{TOOL_NAME} Change Logs")
         self.geometry("1100x720")
-        self.configure(fg_color=COLORS["bg"])
+        theme_window(self)
+        show_on_top(self, master)
 
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=1)

@@ -1,11 +1,12 @@
 # workspace.py
 # developer: SuperHeroPuppy
-# version: 1.0.0
+# version: 1.0.2
 
 from __future__ import annotations
 
 import tkinter as tk
 from pathlib import Path
+from tkinter import Menu
 
 import customtkinter as ctk
 
@@ -14,8 +15,11 @@ from ui.debug_console import DebugConsole
 from ui.file_tree import FileTree
 from ui.tab_bar import TabBar
 from ui.editor_manager import EditorManager
-from core.data_store import COLORS
-
+from core.data_store import COLORS, GENERATORS_ROOT
+from ui.generator_window import GeneratorWindow
+from core.project_generator import iter_generator_specs
+from core.tool_generator_registry import iter_tool_generators
+from ui.theme import theme_menu
 
 class WorkspacePage(ctk.CTkFrame):
     def __init__(self, master, on_back):
@@ -27,7 +31,6 @@ class WorkspacePage(ctk.CTkFrame):
         self.build_runner = BuildRunner()
 
         self.is_busy = False
-
         self.open_files: dict[Path, str] = {}
 
         self.grid_columnconfigure(0, weight=1)
@@ -74,17 +77,58 @@ class WorkspacePage(ctk.CTkFrame):
             padx=4,
         )
 
-        self.compile_button = ctk.CTkButton(
-            top,
-            text="Compile",
-            width=92,
-            command=self.compile_workspace,
-        )
-
-        self.compile_button.grid(
+        compile_group = ctk.CTkFrame(top, fg_color="transparent")
+        compile_group.grid(
             row=0,
             column=2,
             padx=10,
+            pady=8,
+        )
+
+        self.compile_button = ctk.CTkButton(
+            compile_group,
+            text="Compile",
+            width=82,
+            command=self.compile_workspace,
+        )
+
+        self.compile_button.pack(side="left")
+
+        self.compile_menu_button = ctk.CTkButton(
+            compile_group,
+            text="v",
+            width=28,
+            command=self._show_compile_menu,
+        )
+
+        self.compile_menu_button.pack(side="left", padx=(4, 0))
+
+        self.compile_menu = Menu(self, tearoff=0)
+        theme_menu(self.compile_menu)
+        self.compile_menu.add_command(
+            label="Build",
+            command=self.compile_workspace,
+        )
+        self.compile_menu.add_command(
+            label="Run Client",
+            command=lambda: self.run_gradle_task("runClient", "Running Client"),
+        )
+        self.compile_menu.add_command(
+            label="Run Server",
+            command=lambda: self.run_gradle_task("runServer", "Running Server"),
+        )
+
+        self.generator_button = ctk.CTkButton(
+            top,
+            text="Generators",
+            width=110,
+            command=self.open_generators,
+        )
+
+        self.generator_button.grid(
+            row=0,
+            column=3,
+            padx=(0, 10),
             pady=8,
         )
 
@@ -97,7 +141,7 @@ class WorkspacePage(ctk.CTkFrame):
 
         self.install_gradle_button.grid(
             row=0,
-            column=3,
+            column=4,
             padx=(0, 10),
             pady=8,
         )
@@ -217,6 +261,90 @@ class WorkspacePage(ctk.CTkFrame):
 
         self.open_files[path] = "active"
 
+    def open_generators(self):
+
+        if not self.workspace_path:
+            return
+
+        project_info = (
+            self.workspace_path
+            / "project_info.json"
+        )
+
+        if not project_info.exists():
+            return
+
+        import json
+
+        payload = json.loads(
+            project_info.read_text(
+                encoding="utf-8"
+            )
+        )
+
+        generator_root = self._project_generator_root(payload)
+
+        if generator_root is None:
+            self.console.write(
+                "\nNo matching project generator was found for this workspace.\n"
+            )
+            return
+        
+        GeneratorWindow(
+            self,
+            iter_tool_generators(generator_root),
+            self.workspace_path,    
+        )
+
+    def _project_generator_root(self, payload: dict) -> Path | None:
+
+        generator_info = payload.get("generator", {})
+
+        if isinstance(generator_info, dict):
+
+            root = generator_info.get("root")
+
+            if root:
+
+                root_path = Path(root)
+
+                if root_path.exists():
+                    return root_path
+
+            generator_id = generator_info.get("id") or payload.get("generator_id")
+
+        else:
+
+            generator_id = payload.get("generator_id")
+
+        specs = iter_generator_specs(GENERATORS_ROOT)
+
+        if generator_id:
+
+            for spec in specs:
+
+                if spec.id == generator_id:
+                    return spec.root
+
+        minecraft_version = payload.get("minecraft_version")
+        loader = str(payload.get("loader", "fabric")).lower()
+
+        matches = [
+            spec
+            for spec in specs
+            if spec.minecraft_version == minecraft_version
+            and spec.loader == loader
+        ]
+
+        if not matches:
+            return None
+
+        return sorted(
+            matches,
+            key=lambda spec: spec.generator_version,
+            reverse=True,
+        )[0].root
+
     def _select_file(self, path: Path) -> None:
 
         self.editor_manager.set_active("left")
@@ -231,7 +359,21 @@ class WorkspacePage(ctk.CTkFrame):
         if not self.open_files:
             self.editor_manager.clear_all()
 
+    def _show_compile_menu(self) -> None:
+
+        if self.is_busy:
+            return
+
+        self.compile_menu.tk_popup(
+            self.compile_menu_button.winfo_rootx(),
+            self.compile_menu_button.winfo_rooty() + self.compile_menu_button.winfo_height(),
+        )
+
     def compile_workspace(self) -> None:
+
+        self.run_gradle_task("build", "Compiling")
+
+    def run_gradle_task(self, task: str, action_label: str) -> None:
 
         if not self.workspace_path:
             self.console.write(
@@ -245,7 +387,11 @@ class WorkspacePage(ctk.CTkFrame):
 
         self.compile_button.configure(
             state="disabled",
-            text="Compiling",
+            text=action_label,
+        )
+
+        self.compile_menu_button.configure(
+            state="disabled",
         )
 
         self.install_gradle_button.configure(
@@ -253,11 +399,12 @@ class WorkspacePage(ctk.CTkFrame):
         )
 
         self.console.write(
-            f"\nCompiling {self.workspace_path.name}...\n"
+            f"\n{action_label} {self.workspace_path.name}...\n"
         )
 
-        self.build_runner.compile(
+        self.build_runner.run_gradle_task(
             self.workspace_path,
+            task,
             self._write_console,
             self._compile_finished,
         )
@@ -272,6 +419,10 @@ class WorkspacePage(ctk.CTkFrame):
         )
 
         self.compile_button.configure(
+            state="disabled",
+        )
+
+        self.compile_menu_button.configure(
             state="disabled",
         )
 
@@ -310,6 +461,10 @@ class WorkspacePage(ctk.CTkFrame):
 
             self.compile_button.configure(
                 text="Compile"
+            )
+
+            self.compile_menu_button.configure(
+                state="normal"
             )
 
             self.install_gradle_button.configure(
@@ -354,6 +509,12 @@ class WorkspacePage(ctk.CTkFrame):
             return
 
         self.compile_button.configure(
+            state="normal"
+            if available and self.workspace_path
+            else "disabled"
+        )
+
+        self.compile_menu_button.configure(
             state="normal"
             if available and self.workspace_path
             else "disabled"

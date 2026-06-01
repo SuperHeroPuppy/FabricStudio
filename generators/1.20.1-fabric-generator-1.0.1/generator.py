@@ -14,6 +14,7 @@ from typing import Any
 
 YARN_MAPPINGS = "1.20.1+build.10"
 JAVA_VERSION = 17
+FABRIC_API_VERSION = "0.92.9+1.20.1"
 
 
 def generate_project(data: Any, workspace_root: Path, spec: Any) -> Path:
@@ -98,6 +99,8 @@ dependencies {{
     mappings "net.fabricmc:yarn:${{project.yarn_mappings}}:v2"
 
     modImplementation "net.fabricmc:fabric-loader:${{project.loader_version}}"
+
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${{project.fabric_api_version}}"
 }}
 
 tasks.withType(JavaCompile).configureEach {{
@@ -120,6 +123,7 @@ org.gradle.jvmargs=-Xmx1G
 minecraft_version={data.minecraft_version}
 yarn_mappings={YARN_MAPPINGS}
 loader_version={data.fabric_version}
+fabric_api_version={FABRIC_API_VERSION}
 mod_version=1.0.0
 maven_group={group_name}
 archives_base_name={data.mod_id}
@@ -139,6 +143,7 @@ def _fabric_mod_json(data: Any) -> str:
         "entrypoints": {"main": [f"{package_name}.{_class_name(data.mod_id)}"]},
         "depends": {
             "fabricloader": f">={data.fabric_version}",
+            "fabric-api": "*",
             "minecraft": data.minecraft_version,
             "java": f">={JAVA_VERSION}",
         },

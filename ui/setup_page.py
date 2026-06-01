@@ -7,11 +7,13 @@ from __future__ import annotations
 import json
 
 import shutil
+import time
 from pathlib import Path
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
+from core.build_runner import BuildRunner
 from core.data_store import COLORS, TOOL_BUILD, TOOL_CHANNEL, TOOL_NAME, TOOL_VERSION, get_fabric_versions
 from core.project_generator import ProjectData, get_supported_minecraft_versions
 from ui.theme import themed_combo_box, themed_entry, theme_window
@@ -281,7 +283,33 @@ class SetupPage(ctk.CTkFrame):
     def _delete_workspace(self, workspace: Path) -> None:
         if workspace.parent != self.workspaces_root or not workspace.exists():
             return
-        shutil.rmtree(workspace)
+
+        if not messagebox.askyesno(
+            "Delete Workspace",
+            f"Delete {workspace.name}? Running Java or Gradle processes for this workspace will be stopped first.",
+        ):
+            return
+
+        BuildRunner.terminate_workspace_processes(workspace)
+        last_error: Exception | None = None
+
+        for _attempt in range(6):
+            try:
+                shutil.rmtree(workspace)
+                last_error = None
+                break
+            except OSError as exc:
+                last_error = exc
+                BuildRunner.terminate_workspace_processes(workspace)
+                time.sleep(0.25)
+
+        if last_error is not None:
+            messagebox.showerror(
+                "Delete Failed",
+                f"Could not delete {workspace.name}: {last_error}",
+            )
+            return
+
         self._save_recent([item for item in self._load_recent() if item != str(workspace)])
         self.refresh_workspace_lists()
 

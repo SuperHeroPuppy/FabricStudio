@@ -7,6 +7,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import urllib.request
 import zipfile
@@ -20,6 +21,8 @@ FinishHandler = Callable[[int], None]
 
 class BuildRunner:
     bundled_gradle_version = "8.8"
+    _process_lock = threading.Lock()
+    _active_processes: dict[Path, set[subprocess.Popen]] = {}
 
     def __init__(self) -> None:
         pass
@@ -84,11 +87,19 @@ class BuildRunner:
             on_finish(1)
             return
 
-        if process.stdout:
-            for line in process.stdout:
-                on_output(line)
+        workspace_key = self._workspace_key(workspace_path)
+        self._register_process(workspace_key, process)
 
-        on_finish(process.wait())
+        try:
+            if process.stdout:
+                for line in process.stdout:
+                    on_output(line)
+
+            exit_code = process.wait()
+        finally:
+            self._unregister_process(workspace_key, process)
+
+        on_finish(exit_code)
         
     def _run_install(self,workspace_path: Path,on_output: OutputHandler,on_finish: FinishHandler,) -> None:
         try:
@@ -172,3 +183,114 @@ class BuildRunner:
 
     def _build_env(self) -> dict[str, str]:
         return os.environ.copy()
+
+    @classmethod
+    def terminate_workspace_processes(cls, workspace_path: Path) -> int:
+        workspace_key = cls._workspace_key(workspace_path)
+        terminated = 0
+
+        with cls._process_lock:
+            tracked = [
+                (path, process)
+                for path, processes in cls._active_processes.items()
+                if cls._is_same_or_child(path, workspace_key)
+                for process in list(processes)
+            ]
+
+        for _, process in tracked:
+            if process.poll() is None:
+                terminated += cls._terminate_process_tree(process.pid)
+
+        terminated += cls._terminate_windows_workspace_processes(workspace_key)
+        return terminated
+
+    @classmethod
+    def _register_process(cls, workspace_path: Path, process: subprocess.Popen) -> None:
+        with cls._process_lock:
+            cls._active_processes.setdefault(workspace_path, set()).add(process)
+
+    @classmethod
+    def _unregister_process(cls, workspace_path: Path, process: subprocess.Popen) -> None:
+        with cls._process_lock:
+            processes = cls._active_processes.get(workspace_path)
+            if not processes:
+                return
+            processes.discard(process)
+            if not processes:
+                del cls._active_processes[workspace_path]
+
+    @classmethod
+    def _terminate_process_tree(cls, pid: int) -> int:
+        if sys.platform == "win32":
+            result = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                check=False,
+            )
+            return 1 if result.returncode == 0 else 0
+
+        try:
+            os.kill(pid, 15)
+        except OSError:
+            return 0
+        return 1
+
+    @classmethod
+    def _terminate_windows_workspace_processes(cls, workspace_path: Path) -> int:
+        if sys.platform != "win32":
+            return 0
+
+        script = r"""
+$workspace = [System.IO.Path]::GetFullPath($args[0]).TrimEnd('\')
+$currentPid = $PID
+$names = @('java.exe', 'javaw.exe', 'gradle.exe', 'gradle.bat', 'cmd.exe')
+$matches = Get-CimInstance Win32_Process | Where-Object {
+    $_.ProcessId -ne $currentPid -and
+    $_.CommandLine -and
+    $_.CommandLine.Contains($workspace) -and
+    ($names -contains $_.Name)
+}
+$count = 0
+foreach ($process in $matches) {
+    try {
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+        $count++
+    } catch {}
+}
+Write-Output $count
+"""
+        try:
+            result = subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script, str(workspace_path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                check=False,
+            )
+        except OSError:
+            return 0
+
+        try:
+            return int((result.stdout or "0").strip().splitlines()[-1])
+        except (IndexError, ValueError):
+            return 0
+
+    @classmethod
+    def _workspace_key(cls, workspace_path: Path) -> Path:
+        try:
+            return workspace_path.resolve()
+        except OSError:
+            return workspace_path.absolute()
+
+    @classmethod
+    def _is_same_or_child(cls, path: Path, parent: Path) -> bool:
+        try:
+            path.relative_to(parent)
+            return True
+        except ValueError:
+            return path == parent

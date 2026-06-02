@@ -4,32 +4,185 @@
     "description": "Generates a basic item.",
     "supported": true,
 
+    "categories": [
+        {
+            "id": "display",
+            "label": "Display Setup"
+        },
+
+        {
+            "id": "additional",
+            "label": "Additional Content"
+        }
+    ],
+
     "forms": [
         {
             "id": "registry_name",
             "label": "Registry Name",
             "type": "string",
-            "placeholder": "diamond"
+            "placeholder": "diamond",
+            "category": "display"
         },
 
         {
             "id": "display_name",
             "label": "Display Name",
             "type": "string",
-            "placeholder": "Diamond"
+            "placeholder": "Diamond",
+            "category": "display"
         },
 
         {
             "id": "texture",
             "label": "Texture",
-            "type": "texture"
+            "type": "texture",
+            "category": "display"
+        },
+
+        {
+            "id": "max_stack_size",
+            "label": "Max Stack Size",
+            "type": "number",
+            "default": 64,
+            "category": "additional"
+        },
+
+        {
+            "id": "creative_inventory",
+            "label": "Creative Inventory",
+            "type": "select",
+            "values": [
+                "ingredients",
+                "combat",
+                "tools",
+                "food_and_drink",
+                "building_blocks",
+                "natural",
+                "functional",
+                "redstone",
+                "colored_blocks",
+                "operator",
+                "none"
+            ],
+            "default": "ingredients",
+            "category": "additional"
+        },
+
+        {
+            "id": "music_disc",
+            "label": "Make Music Disc",
+            "type": "boolean",
+            "default": false,
+            "category": "additional"
+        },
+
+        {
+            "id": "music_disc_description",
+            "label": "Disc Description",
+            "type": "string",
+            "placeholder": "Artist - Track Name",
+            "visible_if": {
+                "field": "music_disc",
+                "equals": true
+            },
+            "category": "additional"
+        },
+
+        {
+            "id": "music_disc_subtitle",
+            "label": "Sound Subtitle",
+            "type": "string",
+            "placeholder": "Music disc plays",
+            "visible_if": {
+                "field": "music_disc",
+                "equals": true
+            },
+            "category": "additional"
+        },
+
+        {
+            "id": "music_disc_sound",
+            "label": "Music Disc Audio",
+            "type": "audio",
+            "visible_if": {
+                "field": "music_disc",
+                "equals": true
+            },
+            "category": "additional"
+        },
+
+        {
+            "id": "music_disc_length_seconds",
+            "label": "Disc Length Seconds",
+            "type": "number",
+            "default": 120,
+            "visible_if": {
+                "field": "music_disc",
+                "equals": true
+            },
+            "category": "additional"
+        },
+
+        {
+            "id": "music_disc_comparator_output",
+            "label": "Comparator Output",
+            "type": "number",
+            "default": 1,
+            "visible_if": {
+                "field": "music_disc",
+                "equals": true
+            },
+            "category": "additional"
         },
 
         {
             "id": "food_enabled",
             "label": "Add Food Attachment",
             "type": "boolean",
-            "default": false
+            "default": false,
+            "category": "additional"
+        },
+
+        {
+            "id": "consumed_result_enabled",
+            "label": "Add Consumed Result",
+            "type": "boolean",
+            "default": false,
+            "visible_if": {
+                "field": "food_enabled",
+                "equals": true
+            },
+            "category": "additional"
+        },
+
+        {
+            "id": "consumed_result_source",
+            "label": "Consumed Result Source",
+            "type": "select",
+            "values": [
+                "vanilla",
+                "this_mod",
+                "other_mod"
+            ],
+            "default": "vanilla",
+            "visible_if": {
+                "field": "consumed_result_enabled",
+                "equals": true
+            },
+            "category": "additional"
+        },
+
+        {
+            "id": "consumed_result_item",
+            "label": "Consumed Result Item",
+            "type": "element_reference",
+            "source_field": "consumed_result_source",
+            "visible_if": {
+                "field": "consumed_result_enabled",
+                "equals": true
+            },
+            "category": "additional"
         },
 
         {
@@ -40,7 +193,8 @@
             "visible_if": {
                 "field": "food_enabled",
                 "equals": true
-            }
+            },
+            "category": "additional"
         },
 
         {
@@ -51,7 +205,8 @@
             "visible_if": {
                 "field": "food_enabled",
                 "equals": true
-            }
+            },
+            "category": "additional"
         },
 
         {
@@ -66,7 +221,8 @@
             "visible_if": {
                 "field": "food_enabled",
                 "equals": true
-            }
+            },
+            "category": "additional"
         },
 
         {
@@ -77,7 +233,8 @@
             "visible_if": {
                 "field": "food_enabled",
                 "equals": true
-            }
+            },
+            "category": "additional"
         },
 
         {
@@ -88,7 +245,8 @@
             "visible_if": {
                 "field": "food_enabled",
                 "equals": true
-            }
+            },
+            "category": "additional"
         },
 
         {
@@ -99,7 +257,8 @@
             "visible_if": {
                 "field": "food_enabled",
                 "equals": true
-            }
+            },
+            "category": "additional"
         }
     ]
 }

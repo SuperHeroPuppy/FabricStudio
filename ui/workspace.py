@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 import tkinter as tk
 from pathlib import Path
 from tkinter import Menu
@@ -19,7 +20,8 @@ from core.data_store import COLORS, GENERATORS_ROOT
 from ui.generator_window import GeneratorWindow
 from core.project_generator import iter_generator_specs
 from core.tool_generator_registry import iter_tool_generators
-from ui.theme import theme_menu
+from ui.theme import theme_menu, themed_entry, theme_window
+from ui.window_utils import show_on_top
 
 class WorkspacePage(ctk.CTkFrame):
     def __init__(self, master, on_back):
@@ -80,8 +82,22 @@ class WorkspacePage(ctk.CTkFrame):
         compile_group = ctk.CTkFrame(top, fg_color="transparent")
         compile_group.grid(
             row=0,
-            column=2,
+            column=3,
             padx=10,
+            pady=8,
+        )
+
+        self.settings_button = ctk.CTkButton(
+            top,
+            text="Settings",
+            width=92,
+            command=self.open_workspace_settings,
+        )
+
+        self.settings_button.grid(
+            row=0,
+            column=2,
+            padx=(0, 10),
             pady=8,
         )
 
@@ -127,7 +143,7 @@ class WorkspacePage(ctk.CTkFrame):
 
         self.generator_button.grid(
             row=0,
-            column=3,
+            column=4,
             padx=(0, 10),
             pady=8,
         )
@@ -141,7 +157,7 @@ class WorkspacePage(ctk.CTkFrame):
 
         self.install_gradle_button.grid(
             row=0,
-            column=4,
+            column=5,
             padx=(0, 10),
             pady=8,
         )
@@ -252,6 +268,138 @@ class WorkspacePage(ctk.CTkFrame):
         self.tree.load(path)
 
         self.refresh_gradle_state()
+
+    def open_workspace_settings(self) -> None:
+
+        if not self.workspace_path:
+            return
+
+        meta = self._read_project_info()
+        window = ctk.CTkToplevel(self)
+        window.title(f"{self.workspace_path.name} Settings")
+        window.geometry("480x300")
+        theme_window(window)
+        show_on_top(window, self)
+        window.grid_columnconfigure(1, weight=1)
+
+        fields: dict[str, ctk.CTkEntry] = {}
+        field_specs = [
+            ("name", "Mod Name"),
+            ("mod_version", "Mod Version"),
+            ("author", "Author"),
+            ("description", "Description"),
+        ]
+
+        for row, (key, label) in enumerate(field_specs):
+            ctk.CTkLabel(
+                window,
+                text=label,
+                text_color=COLORS["muted"],
+            ).grid(row=row, column=0, sticky="w", padx=18, pady=12)
+            entry = themed_entry(window, height=34)
+            entry.grid(row=row, column=1, sticky="ew", padx=(0, 18), pady=12)
+            entry.insert(0, str(meta.get(key, "")))
+            fields[key] = entry
+
+        def save_settings() -> None:
+            updated = {key: entry.get().strip() for key, entry in fields.items()}
+            if not updated["mod_version"]:
+                updated["mod_version"] = "1.0.0"
+            meta.update(updated)
+            self._write_workspace_settings(meta)
+            self.title_label.configure(text=str(self.workspace_path))
+            self.tree.load(self.workspace_path)
+            window.destroy()
+
+        ctk.CTkButton(
+            window,
+            text="Save Settings",
+            command=save_settings,
+        ).grid(
+            row=len(field_specs),
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            padx=18,
+            pady=(10, 18),
+        )
+
+    def _read_project_info(self) -> dict:
+
+        if not self.workspace_path:
+            return {}
+
+        info_path = self.workspace_path / "project_info.json"
+        if not info_path.exists():
+            return {"name": self.workspace_path.name, "mod_version": "1.0.0"}
+
+        try:
+            payload = json.loads(info_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {"name": self.workspace_path.name, "mod_version": "1.0.0"}
+
+        if not isinstance(payload, dict):
+            payload = {}
+
+        payload.setdefault("name", self.workspace_path.name)
+        payload.setdefault("mod_version", self._read_gradle_property("mod_version") or "1.0.0")
+        return payload
+
+    def _write_workspace_settings(self, meta: dict) -> None:
+
+        if not self.workspace_path:
+            return
+
+        info_path = self.workspace_path / "project_info.json"
+        info_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+        self._write_gradle_property("mod_version", str(meta.get("mod_version") or "1.0.0"))
+
+        mod_json_path = self.workspace_path / "src" / "main" / "resources" / "fabric.mod.json"
+        if mod_json_path.exists():
+            try:
+                payload = json.loads(mod_json_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                payload = {}
+
+            if isinstance(payload, dict):
+                payload["name"] = meta.get("name", self.workspace_path.name)
+                payload["description"] = meta.get("description", "")
+                payload["authors"] = [meta.get("author", "Unknown")]
+                mod_json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def _read_gradle_property(self, key: str) -> str:
+
+        if not self.workspace_path:
+            return ""
+
+        path = self.workspace_path / "gradle.properties"
+        if not path.exists():
+            return ""
+
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.startswith(f"{key}="):
+                return line.split("=", 1)[1].strip()
+        return ""
+
+    def _write_gradle_property(self, key: str, value: str) -> None:
+
+        if not self.workspace_path:
+            return
+
+        path = self.workspace_path / "gradle.properties"
+        lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        updated = False
+        for index, line in enumerate(lines):
+            if line.startswith(f"{key}="):
+                lines[index] = f"{key}={value}"
+                updated = True
+                break
+
+        if not updated:
+            lines.append(f"{key}={value}")
+
+        path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
     def _open_file(self, path: Path) -> None:
 

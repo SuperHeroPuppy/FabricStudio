@@ -204,7 +204,13 @@ class SetupPage(ctk.CTkFrame):
         self._configure_scrollbar()
 
     def remember_workspace(self, path: Path) -> None:
-        entries = [item for item in self._load_recent() if item != str(path)]
+        path = self._normalize_workspace_path(path)
+        path_key = self._workspace_identity(path)
+        entries = [
+            item
+            for item in self._load_recent()
+            if self._workspace_identity(Path(item)) != path_key
+        ]
         entries.insert(0, str(path))
         self._save_recent(entries[:12])
         self.refresh_workspace_lists()
@@ -214,16 +220,22 @@ class SetupPage(ctk.CTkFrame):
         ordered: list[Path] = []
 
         for path in sorted([item for item in self.workspaces_root.iterdir() if item.is_dir()], key=lambda item: item.name.lower()):
-            seen.add(str(path))
-            ordered.append(path)
+            normalized = self._normalize_workspace_path(path)
+            key = self._workspace_identity(normalized)
+            if key in seen:
+                continue
+            seen.add(key)
+            ordered.append(normalized)
 
         for item in self._load_recent():
-            if item in seen:
-                continue
             path = Path(item)
             if path.exists():
-                seen.add(item)
-                ordered.append(path)
+                normalized = self._normalize_workspace_path(path)
+                key = self._workspace_identity(normalized)
+                if key in seen:
+                    continue
+                seen.add(key)
+                ordered.append(normalized)
 
         return ordered
 
@@ -261,6 +273,7 @@ class SetupPage(ctk.CTkFrame):
         fields: dict[str, ctk.CTkEntry] = {}
         field_specs = [
             ("name", "Name"),
+            ("mod_version", "Mod Version"),
             ("author", "Author"),
             ("description", "Description"),
             ("mod_id", "Mod ID"),
@@ -290,7 +303,7 @@ class SetupPage(ctk.CTkFrame):
         ):
             return
 
-        BuildRunner.terminate_workspace_processes(workspace)
+        BuildRunner.terminate_workspace_processes(workspace, include_all_java=True)
         last_error: Exception | None = None
 
         for _attempt in range(6):
@@ -300,7 +313,7 @@ class SetupPage(ctk.CTkFrame):
                 break
             except OSError as exc:
                 last_error = exc
-                BuildRunner.terminate_workspace_processes(workspace)
+                BuildRunner.terminate_workspace_processes(workspace, include_all_java=True)
                 time.sleep(0.25)
 
         if last_error is not None:
@@ -310,21 +323,50 @@ class SetupPage(ctk.CTkFrame):
             )
             return
 
-        self._save_recent([item for item in self._load_recent() if item != str(workspace)])
+        workspace_key = self._workspace_identity(workspace)
+        self._save_recent(
+            [
+                item
+                for item in self._load_recent()
+                if self._workspace_identity(Path(item)) != workspace_key
+            ]
+        )
         self.refresh_workspace_lists()
 
     def _read_workspace_meta(self, workspace: Path) -> dict:
         info_path = workspace / "project_info.json"
         if not info_path.exists():
-            return {"name": workspace.name, "description": str(workspace)}
+            return {
+                "name": workspace.name,
+                "description": str(workspace),
+                "mod_version": self._read_gradle_property(workspace, "mod_version") or "1.0.0",
+            }
         try:
-            return json.loads(info_path.read_text(encoding="utf-8"))
+            payload = json.loads(info_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
-            return {"name": workspace.name, "description": str(workspace)}
+            return {
+                "name": workspace.name,
+                "description": str(workspace),
+                "mod_version": self._read_gradle_property(workspace, "mod_version") or "1.0.0",
+            }
+        if not isinstance(payload, dict):
+            payload = {}
+        payload.setdefault("name", workspace.name)
+        payload.setdefault("description", str(workspace))
+        payload.setdefault(
+            "mod_version",
+            self._read_gradle_property(workspace, "mod_version") or "1.0.0",
+        )
+        return payload
 
     def _write_workspace_meta(self, workspace: Path, meta: dict) -> None:
         info_path = workspace / "project_info.json"
         info_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+        self._write_gradle_property(
+            workspace,
+            "mod_version",
+            str(meta.get("mod_version") or "1.0.0"),
+        )
 
         mod_json_path = workspace / "src" / "main" / "resources" / "fabric.mod.json"
         if mod_json_path.exists():
@@ -362,3 +404,35 @@ class SetupPage(ctk.CTkFrame):
 
     def _save_recent(self, entries: list[str]) -> None:
         self.recent_file.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+
+    def _read_gradle_property(self, workspace: Path, key: str) -> str:
+        path = workspace / "gradle.properties"
+        if not path.exists():
+            return ""
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.startswith(f"{key}="):
+                return line.split("=", 1)[1].strip()
+        return ""
+
+    def _write_gradle_property(self, workspace: Path, key: str, value: str) -> None:
+        path = workspace / "gradle.properties"
+        lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        updated = False
+        for index, line in enumerate(lines):
+            if line.startswith(f"{key}="):
+                lines[index] = f"{key}={value}"
+                updated = True
+                break
+        if not updated:
+            lines.append(f"{key}={value}")
+        path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+    def _normalize_workspace_path(self, path: Path) -> Path:
+        try:
+            return path.resolve()
+        except OSError:
+            return path.absolute()
+
+    def _workspace_identity(self, path: Path) -> str:
+        normalized = self._normalize_workspace_path(path)
+        return str(normalized).casefold()

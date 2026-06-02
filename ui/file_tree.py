@@ -65,6 +65,7 @@ class FileTree(ctk.CTkFrame):
                 "bin",
                 "__pycache__",
                 "generated",
+                "run",
             }:
                 continue
 

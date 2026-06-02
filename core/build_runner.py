@@ -185,7 +185,11 @@ class BuildRunner:
         return os.environ.copy()
 
     @classmethod
-    def terminate_workspace_processes(cls, workspace_path: Path) -> int:
+    def terminate_workspace_processes(
+        cls,
+        workspace_path: Path,
+        include_all_java: bool = False,
+    ) -> int:
         workspace_key = cls._workspace_key(workspace_path)
         terminated = 0
 
@@ -201,7 +205,10 @@ class BuildRunner:
             if process.poll() is None:
                 terminated += cls._terminate_process_tree(process.pid)
 
-        terminated += cls._terminate_windows_workspace_processes(workspace_key)
+        terminated += cls._terminate_windows_workspace_processes(
+            workspace_key,
+            include_all_java,
+        )
         return terminated
 
     @classmethod
@@ -238,19 +245,26 @@ class BuildRunner:
         return 1
 
     @classmethod
-    def _terminate_windows_workspace_processes(cls, workspace_path: Path) -> int:
+    def _terminate_windows_workspace_processes(
+        cls,
+        workspace_path: Path,
+        include_all_java: bool = False,
+    ) -> int:
         if sys.platform != "win32":
             return 0
 
         script = r"""
 $workspace = [System.IO.Path]::GetFullPath($args[0]).TrimEnd('\')
+$includeAllJava = $args[1] -eq '1'
 $currentPid = $PID
 $names = @('java.exe', 'javaw.exe', 'gradle.exe', 'gradle.bat', 'cmd.exe')
 $matches = Get-CimInstance Win32_Process | Where-Object {
     $_.ProcessId -ne $currentPid -and
-    $_.CommandLine -and
-    $_.CommandLine.Contains($workspace) -and
-    ($names -contains $_.Name)
+    ($names -contains $_.Name) -and
+    (
+        ($_.CommandLine -and $_.CommandLine.Contains($workspace)) -or
+        ($includeAllJava -and (@('java.exe', 'javaw.exe') -contains $_.Name))
+    )
 }
 $count = 0
 foreach ($process in $matches) {
@@ -263,7 +277,16 @@ Write-Output $count
 """
         try:
             result = subprocess.run(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script, str(workspace_path)],
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    script,
+                    str(workspace_path),
+                    "1" if include_all_java else "0",
+                ],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 text=True,

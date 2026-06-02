@@ -290,6 +290,7 @@ class GeneratorWindow(ctk.CTkToplevel):
         self.asset_target: tuple[str, str] | None = None
         self.selected_asset: dict | None = None
         self.asset_kind_var = ctk.StringVar(value="textures")
+        self.texture_folder_var = ctk.StringVar(value="item")
         self.asset_import_folder: dict[str, Path | None] = {
             "textures": None,
             "audio": None,
@@ -308,7 +309,7 @@ class GeneratorWindow(ctk.CTkToplevel):
 
         self.access_bar = ctk.CTkFrame(self, fg_color=COLORS["panel"], corner_radius=0)
         self.access_bar.grid(row=0, column=0, sticky="nsew")
-        self.access_bar.grid_rowconfigure(5, weight=1)
+        self.access_bar.grid_rowconfigure(3, weight=1)
 
         ctk.CTkLabel(
             self.access_bar,
@@ -320,35 +321,6 @@ class GeneratorWindow(ctk.CTkToplevel):
         self.nav_buttons: dict[str, ctk.CTkButton] = {}
         self._add_nav_button("home", "Home", 1)
         self._add_nav_button("assets", "Asset Browser", 2)
-
-        ctk.CTkLabel(
-            self.access_bar,
-            text="Generator",
-            text_color=COLORS["muted"],
-            anchor="w",
-        ).grid(row=3, column=0, sticky="ew", padx=18, pady=(18, 4))
-
-        tool_names = [generator.name for generator in self.generators if generator.supported]
-        self.tool_select = themed_combo_box(
-            self.access_bar,
-            values=tool_names or ["No supported generators"],
-            width=210,
-            command=self._select_tool_by_name,
-        )
-        self.tool_select.grid(row=4, column=0, sticky="ew", padx=12, pady=(0, 8))
-        if self.active_tool:
-            self.tool_select.set(self.active_tool.name)
-        elif tool_names:
-            self.tool_select.set(tool_names[0])
-        else:
-            self.tool_select.set("No supported generators")
-
-        self.side_chip_frame = ctk.CTkScrollableFrame(
-            self.access_bar,
-            fg_color="transparent",
-            width=230,
-        )
-        self.side_chip_frame.grid(row=5, column=0, sticky="nsew", padx=12, pady=(8, 12))
 
         self.main = ctk.CTkFrame(self, fg_color=COLORS["bg"], corner_radius=0)
         self.main.grid(row=0, column=1, sticky="nsew")
@@ -383,7 +355,6 @@ class GeneratorWindow(ctk.CTkToplevel):
         self.body.grid_columnconfigure(0, weight=1)
         self.body.grid_rowconfigure(0, weight=1)
 
-        self._refresh_side_chips()
         self._show_page("home")
 
     def _add_nav_button(self, page: str, label: str, row: int) -> None:
@@ -406,6 +377,10 @@ class GeneratorWindow(ctk.CTkToplevel):
         self.active_page = page
         self._clear_body()
         self._clear_header_actions()
+        if page == "assets":
+            self.status_label.grid_remove()
+        else:
+            self.status_label.grid(row=1, column=0, sticky="ew", padx=24, pady=(0, 8))
 
         for name, button in self.nav_buttons.items():
             button.configure(
@@ -490,7 +465,7 @@ class GeneratorWindow(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             empty,
-            text="Press the blue plus button to start configuring a new item chip.",
+            text="Press the blue plus button to start configuring a new chip.",
             text_color=COLORS["muted"],
             anchor="w",
         ).grid(row=1, column=0, sticky="ew", padx=18, pady=(0, 18))
@@ -500,6 +475,14 @@ class GeneratorWindow(ctk.CTkToplevel):
         title = record.get("display_name") or record.get("id") or "Generated chip"
         category = record.get("type") or record.get("tool_id") or "unknown"
         texture = record.get("texture") or record.get("form_data", {}).get("texture")
+        if not texture:
+            block_textures = record.get("block_textures") or record.get("form_data", {}).get("block_textures")
+            if isinstance(block_textures, dict):
+                texture = (
+                    block_textures.get("top")
+                    or block_textures.get("north")
+                    or next(iter(block_textures.values()), "")
+                )
 
         chip = ctk.CTkFrame(parent, fg_color=COLORS["panel"], corner_radius=8)
         chip.grid(row=row, column=column, sticky="nsew", padx=6, pady=6)
@@ -741,6 +724,10 @@ class GeneratorWindow(ctk.CTkToplevel):
             self._build_asset_selector(wrapper, tool_id, field, field_type)
             return
 
+        if field_type == "block_textures":
+            self._build_block_texture_selector(wrapper, tool_id, field)
+            return
+
         if field_type == "element_reference":
             self._build_element_reference_selector(wrapper, tool_id, field)
             return
@@ -793,6 +780,62 @@ class GeneratorWindow(ctk.CTkToplevel):
             "kind": kind,
         }
 
+    def _build_block_texture_selector(self, parent, tool_id: str, field: dict) -> None:
+        sides = [
+            ("top", "Top"),
+            ("bottom", "Bottom"),
+            ("north", "North"),
+            ("south", "South"),
+            ("east", "East"),
+            ("west", "West"),
+        ]
+        initial = self._initial_value(tool_id, field["id"])
+        if not isinstance(initial, dict):
+            initial = {}
+
+        grid = ctk.CTkFrame(parent, fg_color=COLORS["panel_alt"], corner_radius=8)
+        grid.grid(row=1, column=0, sticky="ew")
+        for column in range(3):
+            grid.grid_columnconfigure(column, weight=1, uniform="block_texture_sides")
+
+        for index, (side_id, label) in enumerate(sides):
+            side_key = (tool_id, f"{field['id']}_{side_id}")
+            side = ctk.CTkFrame(grid, fg_color=COLORS["panel"], corner_radius=8)
+            side.grid(row=index // 3, column=index % 3, sticky="nsew", padx=6, pady=6)
+            side.grid_columnconfigure(0, weight=1)
+
+            value = str(initial.get(side_id, ""))
+            var = ctk.StringVar(value=value)
+            preview = self._asset_by_identifier(value) if value else None
+            preview_label = self._thumbnail_label(side, preview, size=(64, 64), fallback=label.upper())
+            preview_label.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 4))
+
+            ctk.CTkLabel(
+                side,
+                text=label,
+                font=("Segoe UI", 13, "bold"),
+            ).grid(row=1, column=0, sticky="ew", padx=10)
+
+            themed_entry(side, textvariable=var).grid(
+                row=2,
+                column=0,
+                sticky="ew",
+                padx=10,
+                pady=(4, 6),
+            )
+            ctk.CTkButton(
+                side,
+                text="Browse",
+                height=30,
+                command=lambda tid=tool_id, fid=f"{field['id']}_{side_id}:block_textures": self._open_assets_for_field(
+                    tid,
+                    fid,
+                    "textures",
+                ),
+            ).grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 10))
+
+            self.inputs[side_key] = var
+
     def _build_element_reference_selector(self, parent, tool_id: str, field: dict) -> None:
         field_id = field["id"]
         key = (tool_id, field_id)
@@ -816,12 +859,12 @@ class GeneratorWindow(ctk.CTkToplevel):
         ).pack(side="right", padx=(8, 0))
 
         self.body.grid_columnconfigure(0, weight=1)
-        self.body.grid_columnconfigure(1, weight=0)
-        self.body.grid_rowconfigure(1, weight=1)
+        self.body.grid_rowconfigure(1, weight=0)
+        self.body.grid_rowconfigure(2, weight=1)
 
         toolbar = ctk.CTkFrame(self.body, fg_color="transparent")
-        toolbar.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
-        toolbar.grid_columnconfigure(2, weight=1)
+        toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        toolbar.grid_columnconfigure(6, weight=1)
 
         for index, kind in enumerate(ASSET_TYPES):
             selected = self.asset_kind_var.get() == kind
@@ -833,20 +876,33 @@ class GeneratorWindow(ctk.CTkToplevel):
                 command=lambda asset_kind=kind: self._select_asset_kind(asset_kind),
             ).grid(row=0, column=index, padx=(0, 8))
 
+        if self.asset_kind_var.get() == "textures":
+            texture_target = themed_combo_box(
+                toolbar,
+                values=["item", "block"],
+                variable=self.texture_folder_var,
+                width=92,
+                command=lambda _value: self._show_page("assets"),
+            )
+            texture_target.grid(row=0, column=3, padx=(8, 8))
+            action_column = 4
+        else:
+            action_column = 3
+
         ctk.CTkButton(
             toolbar,
             text="Choose Folder",
             width=122,
             fg_color=COLORS["panel_alt"],
             command=self._choose_asset_folder,
-        ).grid(row=0, column=3, padx=(8, 8))
+        ).grid(row=0, column=action_column, padx=(8, 8))
 
         ctk.CTkButton(
             toolbar,
             text=ASSET_TYPES[self.asset_kind_var.get()]["import_label"],
             width=126,
             command=self._import_asset,
-        ).grid(row=0, column=4)
+        ).grid(row=0, column=action_column + 1)
 
         current_folder = self._current_asset_import_dir()
         try:
@@ -858,30 +914,97 @@ class GeneratorWindow(ctk.CTkToplevel):
             toolbar,
             text=folder_text,
             text_color=COLORS["muted"],
-            anchor="e",
-        ).grid(row=0, column=2, sticky="ew", padx=(8, 8))
+            anchor="w",
+        ).grid(row=1, column=0, columnspan=7, sticky="ew", pady=(6, 0))
 
-        list_panel = ctk.CTkScrollableFrame(self.body, fg_color="transparent")
-        list_panel.grid(row=1, column=0, sticky="nsew", padx=(0, 12))
-        list_panel.grid_columnconfigure(0, weight=1)
+        if self.selected_asset:
+            preview_panel = ctk.CTkFrame(self.body, fg_color=COLORS["panel"], corner_radius=8)
+            preview_panel.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+            preview_panel.grid_columnconfigure(1, weight=1)
+            self._build_inline_asset_preview(preview_panel)
 
-        preview_panel = ctk.CTkFrame(self.body, fg_color=COLORS["panel"], corner_radius=8, width=300)
-        preview_panel.grid(row=1, column=1, sticky="nsew")
-        preview_panel.grid_columnconfigure(0, weight=1)
+        grid_panel = ctk.CTkScrollableFrame(self.body, fg_color="transparent")
+        grid_panel.grid(row=2, column=0, sticky="nsew")
+        columns = 5
+        for column in range(columns):
+            grid_panel.grid_columnconfigure(column, weight=1, uniform="asset_grid")
 
         assets = self._asset_records(self.asset_kind_var.get())
         if not assets:
             ctk.CTkLabel(
-                list_panel,
+                grid_panel,
                 text=f"No {ASSET_TYPES[self.asset_kind_var.get()]['label'].lower()} found yet.",
                 text_color=COLORS["muted"],
                 anchor="w",
             ).grid(row=0, column=0, sticky="ew", padx=8, pady=8)
         else:
-            for row, asset in enumerate(assets):
-                self._build_asset_row(list_panel, asset, row)
+            for index, asset in enumerate(assets):
+                self._build_asset_grid_card(
+                    grid_panel,
+                    asset,
+                    row=index // columns,
+                    column=index % columns,
+                )
 
-        self._build_asset_preview(preview_panel)
+    def _build_asset_grid_card(self, parent, asset: dict, row: int, column: int) -> None:
+        selected = self.selected_asset and self.selected_asset.get("path") == asset.get("path")
+        frame = ctk.CTkFrame(
+            parent,
+            fg_color=COLORS["panel_alt"] if selected else COLORS["panel"],
+            corner_radius=8,
+            border_width=1 if selected else 0,
+            border_color=COLORS["accent"],
+        )
+        frame.grid(row=row, column=column, sticky="nsew", padx=6, pady=6)
+        frame.grid_columnconfigure(0, weight=1)
+
+        thumb = self._thumbnail_label(frame, asset, size=(92, 92), fallback=asset["kind"].upper())
+        thumb.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
+
+        ctk.CTkLabel(
+            frame,
+            text=asset["identifier"],
+            font=("Segoe UI", 12, "bold"),
+            anchor="center",
+            wraplength=150,
+        ).grid(row=1, column=0, sticky="ew", padx=10)
+
+        ctk.CTkButton(
+            frame,
+            text="Select" if self.asset_target else "Preview",
+            height=30,
+            command=lambda item=asset: self._select_asset(item),
+        ).grid(row=2, column=0, sticky="ew", padx=10, pady=(8, 10))
+
+    def _build_inline_asset_preview(self, parent) -> None:
+        asset = self.selected_asset
+        if not asset:
+            return
+
+        thumb = self._thumbnail_label(parent, asset, size=(78, 78), fallback=asset["kind"].upper())
+        thumb.grid(row=0, column=0, rowspan=2, padx=12, pady=10)
+
+        ctk.CTkLabel(
+            parent,
+            text=asset["identifier"],
+            font=("Segoe UI", 15, "bold"),
+            anchor="w",
+        ).grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=(12, 0))
+
+        ctk.CTkLabel(
+            parent,
+            text=str(asset["path"].relative_to(self.workspace_path)),
+            text_color=COLORS["muted"],
+            anchor="w",
+        ).grid(row=1, column=1, sticky="ew", padx=(0, 12), pady=(0, 12))
+
+        if self.asset_target:
+            ctk.CTkButton(
+                parent,
+                text="Use In Chip",
+                width=120,
+                command=lambda item=asset: self._use_asset_for_target(item),
+            ).grid(row=0, column=2, rowspan=2, sticky="e", padx=(0, 12), pady=12)
 
     def _build_asset_row(self, parent, asset: dict, row: int) -> None:
         selected = self.selected_asset and self.selected_asset.get("path") == asset.get("path")
@@ -984,44 +1107,14 @@ class GeneratorWindow(ctk.CTkToplevel):
         )
 
     def _refresh_side_chips(self) -> None:
-        for widget in self.side_chip_frame.winfo_children():
-            widget.destroy()
+        return
 
-        ctk.CTkButton(
-            self.side_chip_frame,
-            text="+ New Chip",
-            height=34,
-            fg_color=COLORS["accent"],
-            hover_color="#2563eb",
-            command=self._new_chip,
-        ).pack(fill="x", pady=(0, 8))
-
-        records = self._generated_records()
-        if not records:
-            ctk.CTkLabel(
-                self.side_chip_frame,
-                text="No generated chips.",
-                text_color=COLORS["muted"],
-                anchor="w",
-            ).pack(fill="x", padx=6, pady=4)
+    def _new_chip(self, tool=None) -> None:
+        if tool is None:
+            self._open_new_chip_dialog()
             return
 
-        for record in records:
-            tool = self._tool_for_record(record)
-            title = record.get("display_name") or record.get("id") or "Generated"
-            chip = ctk.CTkButton(
-                self.side_chip_frame,
-                text=str(title),
-                height=32,
-                anchor="w",
-                fg_color=COLORS["panel_alt"],
-                command=lambda item=record, spec=tool: self._edit_generated(item, spec)
-                if spec and spec.supported
-                else None,
-            )
-            chip.pack(fill="x", pady=3)
-
-    def _new_chip(self) -> None:
+        self.active_tool = tool
         if self.active_tool is None:
             self.status_label.configure(text="No supported generators are available.")
             return
@@ -1031,7 +1124,33 @@ class GeneratorWindow(ctk.CTkToplevel):
         self.asset_target = None
         self.draft_values[self.active_tool.id] = self._default_draft(self.active_tool)
         self._show_page("configure")
-        self._refresh_side_chips()
+
+    def _open_new_chip_dialog(self) -> None:
+        supported = [generator for generator in self.generators if generator.supported]
+        if not supported:
+            self.status_label.configure(text="No supported generators are available.")
+            return
+
+        window = ctk.CTkToplevel(self)
+        window.title("Create Chip")
+        window.geometry("320x220")
+        theme_window(window)
+        show_on_top(window, self)
+        window.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            window,
+            text="Create",
+            font=("Segoe UI", 22, "bold"),
+        ).grid(row=0, column=0, sticky="ew", padx=18, pady=(18, 6))
+
+        for row, generator in enumerate(supported, start=1):
+            ctk.CTkButton(
+                window,
+                text=generator.name,
+                height=40,
+                command=lambda tool=generator: (window.destroy(), self._new_chip(tool)),
+            ).grid(row=row, column=0, sticky="ew", padx=18, pady=6)
 
     def _edit_generated(self, record: dict, tool) -> None:
         if tool is None or not tool.supported:
@@ -1039,7 +1158,6 @@ class GeneratorWindow(ctk.CTkToplevel):
             return
 
         self.active_tool = tool
-        self.tool_select.set(tool.name)
         self.editing_record = record
         self.active_category = "display"
         self.asset_target = None
@@ -1083,6 +1201,8 @@ class GeneratorWindow(ctk.CTkToplevel):
         self._save_active_draft()
         self.asset_target = (tool_id, field_id)
         self.asset_kind_var.set(kind)
+        if field_id.endswith(":block_textures"):
+            self.texture_folder_var.set("block")
         self.selected_asset = None
         self._show_page("assets")
         self.status_label.configure(text="Select an asset for the active chip.")
@@ -1101,7 +1221,20 @@ class GeneratorWindow(ctk.CTkToplevel):
 
         tool_id, field_id = self.asset_target
         values = self.draft_values.setdefault(tool_id, {})
-        values[field_id] = asset["identifier"]
+        if ":" in field_id:
+            actual_field_id, field_type = field_id.split(":", 1)
+        else:
+            actual_field_id, field_type = field_id, ""
+
+        if field_type == "block_textures" and "_" in actual_field_id:
+            base_field, side = actual_field_id.rsplit("_", 1)
+            block_textures = values.setdefault(base_field, {})
+            if not isinstance(block_textures, dict):
+                block_textures = {}
+                values[base_field] = block_textures
+            block_textures[side] = asset["identifier"]
+        else:
+            values[actual_field_id] = asset["identifier"]
         self.asset_target = None
         self.selected_asset = asset
         self._show_page("configure")
@@ -1214,7 +1347,6 @@ class GeneratorWindow(ctk.CTkToplevel):
 
         self.editing_record = None
         self.draft_values.pop(self.active_tool.id, None)
-        self._refresh_side_chips()
         self._show_page("home")
         self.status_label.configure(
             text=f"{self.active_tool.name} {'updated' if old_record else 'generated'}."
@@ -1232,7 +1364,6 @@ class GeneratorWindow(ctk.CTkToplevel):
         self._delete_record_files(record)
         if self.editing_record is record:
             self.editing_record = None
-        self._refresh_side_chips()
         self._show_page("home")
         self.status_label.configure(text=f"Deleted {title}.")
 
@@ -1281,7 +1412,11 @@ class GeneratorWindow(ctk.CTkToplevel):
             else:
                 value = widget.get()
 
-            payload[field_id] = value
+            if field_id.startswith("block_textures_"):
+                side = field_id.removeprefix("block_textures_")
+                payload.setdefault("block_textures", {})[side] = value
+            else:
+                payload[field_id] = value
 
         return payload
 
@@ -1333,10 +1468,10 @@ class GeneratorWindow(ctk.CTkToplevel):
             return explicit
 
         if category_id == "display":
-            display_ids = {"registry_name", "display_name", "texture", "model"}
+            display_ids = {"registry_name", "display_name", "texture", "block_textures", "model"}
             return [field for field in fields if field.get("id") in display_ids]
 
-        display_ids = {"registry_name", "display_name", "texture", "model"}
+        display_ids = {"registry_name", "display_name", "texture", "block_textures", "model"}
         return [field for field in fields if field.get("id") not in display_ids]
 
     def _default_draft(self, tool) -> dict:
@@ -1475,6 +1610,8 @@ class GeneratorWindow(ctk.CTkToplevel):
 
     def _default_asset_import_dir(self, kind: str) -> Path:
         target_parts = ASSET_TYPES[kind]["target"]
+        if kind == "textures":
+            target_parts = ("textures", self.texture_folder_var.get() or "item")
         return self._assets_root() / self.mod_id / Path(*target_parts)
 
     def _assets_root(self) -> Path:
@@ -1506,6 +1643,8 @@ class GeneratorWindow(ctk.CTkToplevel):
                 values[field_id] = record.get("display_name", "")
             elif field_id == "texture":
                 values[field_id] = record.get("texture", "")
+            elif field_id == "block_textures":
+                values[field_id] = record.get("block_textures", {})
         return values
 
     def _load_generator_module(self, tool):

@@ -1,22 +1,150 @@
 {
     "id": "block",
     "name": "Block",
-    "description": "Generates a basic block.",
-    "supported": false,
+    "description": "Generates a basic cube block.",
+    "supported": true,
+
+    "categories": [
+        {
+            "id": "display",
+            "label": "Display Setup"
+        },
+        {
+            "id": "additional",
+            "label": "Additional Content"
+        }
+    ],
 
     "forms": [
         {
             "id": "registry_name",
             "label": "Registry Name",
             "type": "string",
-            "placeholder": "diamond"
+            "placeholder": "blue_bricks",
+            "category": "display"
         },
-
         {
             "id": "display_name",
             "label": "Display Name",
             "type": "string",
-            "placeholder": "Diamond"
+            "placeholder": "Blue Bricks",
+            "category": "display"
+        },
+        {
+            "id": "block_textures",
+            "label": "Block Textures",
+            "type": "block_textures",
+            "category": "display"
+        },
+        {
+            "id": "creative_inventory",
+            "label": "Creative Inventory",
+            "type": "select",
+            "values": [
+                "building_blocks",
+                "natural",
+                "functional",
+                "redstone",
+                "colored_blocks",
+                "ingredients",
+                "combat",
+                "tools",
+                "operator",
+                "none"
+            ],
+            "default": "building_blocks",
+            "category": "additional"
+        },
+        {
+            "id": "max_stack_size",
+            "label": "Max Stack Size",
+            "type": "number",
+            "default": 64,
+            "category": "additional"
+        },
+        {
+            "id": "hardness",
+            "label": "Hardness",
+            "type": "number",
+            "default": 1.5,
+            "category": "additional"
+        },
+        {
+            "id": "resistance",
+            "label": "Blast Resistance",
+            "type": "number",
+            "default": 6.0,
+            "category": "additional"
+        },
+        {
+            "id": "sound_group",
+            "label": "Block Sound",
+            "type": "select",
+            "values": [
+                "stone",
+                "wood",
+                "deepslate",
+                "gravel",
+                "grass",
+                "sand",
+                "metal",
+                "glass",
+                "wool",
+                "copper",
+                "amethyst_block",
+                "calcite",
+                "mud"
+            ],
+            "default": "stone",
+            "category": "additional"
+        },
+        {
+            "id": "tool_type",
+            "label": "Tool Type",
+            "type": "select",
+            "values": [
+                "none",
+                "pickaxe",
+                "axe",
+                "shovel",
+                "hoe"
+            ],
+            "default": "none",
+            "category": "additional"
+        },
+        {
+            "id": "tool_level",
+            "label": "Tool Level",
+            "type": "select",
+            "values": [
+                "none",
+                "wood",
+                "stone",
+                "iron",
+                "diamond",
+                "netherite"
+            ],
+            "default": "none",
+            "category": "additional"
+        },
+        {
+            "id": "rotation_mode",
+            "label": "Rotation Mode",
+            "type": "select",
+            "values": [
+                "none",
+                "face_player",
+                "pillar"
+            ],
+            "default": "none",
+            "category": "additional"
+        },
+        {
+            "id": "requires_tool",
+            "label": "Requires Correct Tool",
+            "type": "boolean",
+            "default": false,
+            "category": "additional"
         }
     ]
 }

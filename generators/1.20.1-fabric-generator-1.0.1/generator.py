@@ -135,7 +135,7 @@ def _fabric_mod_json(data: Any) -> str:
     payload = {
         "schemaVersion": 1,
         "id": data.mod_id,
-        "version": "${version}",
+        "version": "1.0.0",
         "name": data.name,
         "description": data.description,
         "authors": [data.author or "Unknown"],

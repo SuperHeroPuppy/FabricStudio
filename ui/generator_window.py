@@ -291,6 +291,7 @@ class GeneratorWindow(ctk.CTkToplevel):
         self.selected_asset: dict | None = None
         self.asset_kind_var = ctk.StringVar(value="textures")
         self.texture_folder_var = ctk.StringVar(value="item")
+        self.model_folder_var = ctk.StringVar(value="item")
         self.asset_import_folder: dict[str, Path | None] = {
             "textures": None,
             "audio": None,
@@ -728,6 +729,10 @@ class GeneratorWindow(ctk.CTkToplevel):
             self._build_block_texture_selector(wrapper, tool_id, field)
             return
 
+        if field_type == "hitbox_table":
+            self._build_hitbox_table(wrapper, tool_id, field)
+            return
+
         if field_type == "element_reference":
             self._build_element_reference_selector(wrapper, tool_id, field)
             return
@@ -836,6 +841,57 @@ class GeneratorWindow(ctk.CTkToplevel):
 
             self.inputs[side_key] = var
 
+    def _build_hitbox_table(self, parent, tool_id: str, field: dict) -> None:
+        field_id = field["id"]
+        initial = self._initial_value(tool_id, field_id)
+        if not isinstance(initial, dict):
+            initial = {}
+
+        defaults = {
+            "min_x": 0,
+            "min_y": 0,
+            "min_z": 0,
+            "max_x": 16,
+            "max_y": 16,
+            "max_z": 16,
+        }
+
+        table = ctk.CTkFrame(parent, fg_color=COLORS["panel_alt"], corner_radius=8)
+        table.grid(row=1, column=0, sticky="ew")
+        for column in range(4):
+            table.grid_columnconfigure(column, weight=1, uniform="hitbox_table")
+
+        ctk.CTkLabel(table, text="", width=64).grid(row=0, column=0, padx=8, pady=(10, 4))
+        for column, axis in enumerate(("X", "Y", "Z"), start=1):
+            ctk.CTkLabel(
+                table,
+                text=axis,
+                font=("Segoe UI", 13, "bold"),
+            ).grid(row=0, column=column, sticky="ew", padx=6, pady=(10, 4))
+
+        for row, (prefix, label) in enumerate((("min", "Min"), ("max", "Max")), start=1):
+            ctk.CTkLabel(
+                table,
+                text=label,
+                anchor="w",
+            ).grid(row=row, column=0, sticky="ew", padx=(12, 6), pady=6)
+
+            for column, axis in enumerate(("x", "y", "z"), start=1):
+                key_name = f"{prefix}_{axis}"
+                input_id = f"custom_hitbox_{key_name}"
+                value = self._initial_value(tool_id, input_id)
+                if value is None:
+                    value = initial.get(key_name, defaults[key_name])
+                var = ctk.StringVar(value=str(value))
+                themed_entry(table, textvariable=var, width=82).grid(
+                    row=row,
+                    column=column,
+                    sticky="ew",
+                    padx=6,
+                    pady=6,
+                )
+                self.inputs[(tool_id, input_id)] = var
+
     def _build_element_reference_selector(self, parent, tool_id: str, field: dict) -> None:
         field_id = field["id"]
         key = (tool_id, field_id)
@@ -876,18 +932,27 @@ class GeneratorWindow(ctk.CTkToplevel):
                 command=lambda asset_kind=kind: self._select_asset_kind(asset_kind),
             ).grid(row=0, column=index, padx=(0, 8))
 
+        action_column = 3
         if self.asset_kind_var.get() == "textures":
-            texture_target = themed_combo_box(
+            asset_target = themed_combo_box(
                 toolbar,
                 values=["item", "block"],
                 variable=self.texture_folder_var,
                 width=92,
                 command=lambda _value: self._show_page("assets"),
             )
-            texture_target.grid(row=0, column=3, padx=(8, 8))
+            asset_target.grid(row=0, column=3, padx=(8, 8))
             action_column = 4
-        else:
-            action_column = 3
+        elif self.asset_kind_var.get() == "models":
+            asset_target = themed_combo_box(
+                toolbar,
+                values=["item", "block"],
+                variable=self.model_folder_var,
+                width=92,
+                command=lambda _value: self._show_page("assets"),
+            )
+            asset_target.grid(row=0, column=3, padx=(8, 8))
+            action_column = 4
 
         ctk.CTkButton(
             toolbar,
@@ -1194,6 +1259,8 @@ class GeneratorWindow(ctk.CTkToplevel):
 
     def _select_asset_kind(self, kind: str) -> None:
         self.asset_kind_var.set(kind)
+        if kind == "models" and self.active_tool:
+            self.model_folder_var.set("block" if self.active_tool.id == "block" else "item")
         self.selected_asset = None
         self._show_page("assets")
 
@@ -1203,6 +1270,8 @@ class GeneratorWindow(ctk.CTkToplevel):
         self.asset_kind_var.set(kind)
         if field_id.endswith(":block_textures"):
             self.texture_folder_var.set("block")
+        if kind == "models":
+            self.model_folder_var.set("block" if tool_id == "block" else "item")
         self.selected_asset = None
         self._show_page("assets")
         self.status_label.configure(text="Select an asset for the active chip.")
@@ -1226,6 +1295,7 @@ class GeneratorWindow(ctk.CTkToplevel):
         else:
             actual_field_id, field_type = field_id, ""
 
+        synced_duration = None
         if field_type == "block_textures" and "_" in actual_field_id:
             base_field, side = actual_field_id.rsplit("_", 1)
             block_textures = values.setdefault(base_field, {})
@@ -1235,10 +1305,80 @@ class GeneratorWindow(ctk.CTkToplevel):
             block_textures[side] = asset["identifier"]
         else:
             values[actual_field_id] = asset["identifier"]
+            if actual_field_id == "music_disc_sound":
+                synced_duration = self._sync_music_disc_length(tool_id, asset)
+
         self.asset_target = None
         self.selected_asset = asset
         self._show_page("configure")
-        self.status_label.configure(text=f"Asset set to {asset['identifier']}.")
+        if synced_duration is None:
+            self.status_label.configure(text=f"Asset set to {asset['identifier']}.")
+        else:
+            self.status_label.configure(
+                text=f"Asset set to {asset['identifier']}; length synced to {synced_duration} seconds."
+            )
+
+    def _sync_music_disc_length(self, tool_id: str, asset: dict) -> int | None:
+        if tool_id != "item" or asset.get("kind") != "audio":
+            return None
+
+        values = self.draft_values.setdefault(tool_id, {})
+        if not self._as_bool(values.get("music_disc_auto_sync_length", True)):
+            return None
+
+        duration = self._ogg_vorbis_duration_seconds(Path(asset["path"]))
+        if duration is None:
+            return None
+
+        values["music_disc_length_seconds"] = duration
+        return duration
+
+    def _ogg_vorbis_duration_seconds(self, path: Path) -> int | None:
+        if not path.exists():
+            return None
+
+        try:
+            data = path.read_bytes()
+        except OSError:
+            return None
+
+        header_index = data.find(b"\x01vorbis")
+        if header_index < 0 or header_index + 16 > len(data):
+            return None
+
+        sample_rate = int.from_bytes(data[header_index + 12 : header_index + 16], "little")
+        if sample_rate <= 0:
+            return None
+
+        max_granule = -1
+        index = 0
+        while True:
+            page_index = data.find(b"OggS", index)
+            if page_index < 0 or page_index + 27 > len(data):
+                break
+
+            segment_count = data[page_index + 26]
+            segment_table_start = page_index + 27
+            segment_table_end = segment_table_start + segment_count
+            if segment_table_end > len(data):
+                break
+
+            body_size = sum(data[segment_table_start:segment_table_end])
+            page_end = segment_table_end + body_size
+            granule = int.from_bytes(
+                data[page_index + 6 : page_index + 14],
+                "little",
+                signed=True,
+            )
+            if granule >= 0:
+                max_granule = max(max_granule, granule)
+
+            index = page_end if page_end > page_index else page_index + 4
+
+        if max_granule < 0:
+            return None
+
+        return max(1, int((max_granule + sample_rate - 1) // sample_rate))
 
     def _choose_asset_folder(self) -> None:
         base = self._default_asset_import_dir(self.asset_kind_var.get())
@@ -1330,6 +1470,12 @@ class GeneratorWindow(ctk.CTkToplevel):
         old_record = self.editing_record
         old_id = str(old_record.get("id", "")) if old_record else ""
         new_id = self._safe_name(registry_name)
+        conflict = self._registry_id_conflict(new_id, old_record)
+        if conflict:
+            self.status_label.configure(
+                text=f"Registry name '{new_id}' is already used by a generated {conflict}."
+            )
+            return
 
         if old_record and old_id and old_id != new_id:
             self._delete_record_files(old_record)
@@ -1525,6 +1671,25 @@ class GeneratorWindow(ctk.CTkToplevel):
             ),
         )
 
+    def _registry_id_conflict(self, registry_id: str, current_record: dict | None) -> str:
+        current_type = str(current_record.get("type", "")) if current_record else ""
+        current_id = str(current_record.get("id", "")) if current_record else ""
+        for record in self._generated_records():
+            record_type = str(record.get("type", ""))
+            if record_type not in {"block", "item"}:
+                continue
+
+            record_id = str(record.get("id", ""))
+            if record_id != registry_id:
+                continue
+
+            if current_record and record_type == current_type and record_id == current_id:
+                continue
+
+            return record_type
+
+        return ""
+
     def _asset_records(self, kind: str | None = None) -> list[dict]:
         assets_root = self._assets_root()
         if not assets_root.exists():
@@ -1573,7 +1738,7 @@ class GeneratorWindow(ctk.CTkToplevel):
             model_type = parts[2]
             name_parts = list(parts[3:])
             name_parts[-1] = Path(name_parts[-1]).stem
-            identifier = f"{namespace}:models/{model_type}/{'/'.join(name_parts)}"
+            identifier = f"{namespace}:{model_type}/{'/'.join(name_parts)}"
 
         return {
             "path": path,
@@ -1587,7 +1752,17 @@ class GeneratorWindow(ctk.CTkToplevel):
         for asset in self._asset_records():
             if asset["identifier"] == identifier:
                 return asset
+            if asset["kind"] == "models" and self._legacy_model_identifier(asset) == identifier:
+                return asset
         return None
+
+    def _legacy_model_identifier(self, asset: dict) -> str:
+        identifier = str(asset.get("identifier", ""))
+        if ":" not in identifier:
+            return identifier
+
+        namespace, model_path = identifier.split(":", 1)
+        return f"{namespace}:models/{model_path}"
 
     def _element_reference_values(self, source: str) -> list[str]:
         source = str(source or "vanilla")
@@ -1612,6 +1787,8 @@ class GeneratorWindow(ctk.CTkToplevel):
         target_parts = ASSET_TYPES[kind]["target"]
         if kind == "textures":
             target_parts = ("textures", self.texture_folder_var.get() or "item")
+        elif kind == "models":
+            target_parts = ("models", self.model_folder_var.get() or "item")
         return self._assets_root() / self.mod_id / Path(*target_parts)
 
     def _assets_root(self) -> Path:

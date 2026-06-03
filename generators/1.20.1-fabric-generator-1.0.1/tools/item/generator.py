@@ -28,7 +28,7 @@ def generate(data: dict, workspace_root: Path, tool) -> None:
     package_name = _package_declaration(project, mod_id)
     main_class = _class_name(mod_id)
     texture_path = _normalize_texture(data.get("texture"), mod_id, item_name)
-    form_data = _form_data(data, item_name, display_name, texture_path, mod_id)
+    form_data = _form_data(data, item_name, display_name, texture_path, mod_id, workspace_root)
 
     java_root = workspace_root / "src" / "main" / "java" / Path(*package_name.split("."))
     resources_root = workspace_root / "src" / "main" / "resources"
@@ -48,12 +48,7 @@ def generate(data: dict, workspace_root: Path, tool) -> None:
     model_path = assets_root / "models" / "item" / f"{item_name}.json"
     _write_json(
         model_path,
-        {
-            "parent": "item/generated",
-            "textures": {
-                "layer0": texture_path,
-            },
-        },
+        _item_model_payload(form_data),
     )
     touched_files.append(model_path)
 
@@ -246,6 +241,11 @@ def _update_main_class(path: Path, package_name: str, main_class: str, mod_id: s
         return
 
     content = path.read_text(encoding="utf-8")
+    content = _remove_missing_block_registration(
+        content,
+        path.parent / "block" / "ModBlocks.java",
+        package_name,
+    )
     import_line = f"import {package_name}.item.ModItems;"
 
     if import_line not in content:
@@ -264,6 +264,16 @@ def _update_main_class(path: Path, package_name: str, main_class: str, mod_id: s
         content = _insert_on_initialize_call(content, call)
 
     path.write_text(content, encoding="utf-8")
+
+
+def _remove_missing_block_registration(content: str, mod_blocks_path: Path, package_name: str) -> str:
+    if mod_blocks_path.exists():
+        return content
+
+    import_line = f"import {package_name}.block.ModBlocks;"
+    content = content.replace(import_line + "\n", "")
+    content = content.replace("        ModBlocks.registerModBlocks();\n", "")
+    return content
 
 
 def _main_class_source(package_name: str, main_class: str, mod_id: str) -> str:
@@ -354,15 +364,22 @@ def _form_data(
     display_name: str,
     texture_path: str,
     mod_id: str,
+    workspace_root: Path,
 ) -> dict:
     food_enabled = _as_bool(data.get("food_enabled", False))
     music_disc = _as_bool(data.get("music_disc", False))
+    model_source = _model_source(data.get("model_source", "default"))
+    custom_model = _normalize_model_identifier(data.get("custom_model"), mod_id, "item")
+    if model_source == "custom" and not custom_model:
+        model_source = "default"
     payload = {
         "registry_name": item_name,
         "display_name": display_name,
         "texture": texture_path,
         "max_stack_size": _clamped_int(data.get("max_stack_size", 64), 1, 64, 64),
         "creative_inventory": _creative_inventory(data.get("creative_inventory", "ingredients")),
+        "model_source": model_source,
+        "custom_model": custom_model,
         "music_disc": music_disc,
         "food_enabled": food_enabled,
     }
@@ -378,9 +395,14 @@ def _form_data(
                     data.get("music_disc_subtitle") or f"{display_name} plays"
                 ),
                 "music_disc_subtitle_key": f"subtitles.{mod_id}.{item_name}",
-                "music_disc_length_seconds": _as_int(
-                    data.get("music_disc_length_seconds", 120),
-                    120,
+                "music_disc_auto_sync_length": _as_bool(
+                    data.get("music_disc_auto_sync_length", True)
+                ),
+                "music_disc_length_seconds": _music_disc_length_seconds(
+                    workspace_root,
+                    data,
+                    mod_id,
+                    item_name,
                 ),
                 "music_disc_comparator_output": _as_int(
                     data.get("music_disc_comparator_output", 1),
@@ -411,6 +433,43 @@ def _form_data(
         )
 
     return payload
+
+
+def _item_model_payload(data: dict) -> dict:
+    if data.get("model_source") == "custom" and data.get("custom_model"):
+        return {"parent": data["custom_model"]}
+
+    return {
+        "parent": "minecraft:item/generated",
+        "textures": {
+            "layer0": data["texture"],
+        },
+    }
+
+
+def _model_source(value) -> str:
+    normalized = safe_name(str(value or "default"))
+    return normalized if normalized in {"default", "custom"} else "default"
+
+
+def _normalize_model_identifier(value, mod_id: str, model_type: str) -> str:
+    text = str(value or "").strip().replace("\\", "/")
+    if not text:
+        return ""
+
+    if ":" not in text:
+        text = f"{mod_id}:{model_type}/{text}"
+
+    namespace, path = text.split(":", 1)
+    namespace = safe_name(namespace)
+    if path.startswith("models/"):
+        path = path[len("models/") :]
+    path = re.sub(r"[^a-z0-9_./-]+", "_", path.strip().lower()).strip("_/")
+    if "/" not in path:
+        path = f"{model_type}/{path}"
+    if not namespace or not path:
+        return ""
+    return f"{namespace}:{path}"
 
 
 def _item_imports(data: dict, package_name: str) -> list[str]:
@@ -810,6 +869,92 @@ def _remove_tag_json_entry(path: Path, identifier: str) -> None:
 def _normalize_sound_asset(value, item_name: str) -> str:
     text = str(value or "").strip().replace("\\", "/")
     return text or f"sounds/{item_name}"
+
+
+def _music_disc_length_seconds(
+    workspace_root: Path,
+    data: dict,
+    mod_id: str,
+    item_name: str,
+) -> int:
+    fallback = max(1, _as_int(data.get("music_disc_length_seconds", 120), 120))
+    if not _as_bool(data.get("music_disc_auto_sync_length", True)):
+        return fallback
+
+    sound_path = _resolve_sound_asset_path(
+        workspace_root,
+        _normalize_sound_asset(data.get("music_disc_sound"), item_name),
+        mod_id,
+    )
+    detected = _ogg_vorbis_duration_seconds(sound_path)
+    return detected if detected is not None else fallback
+
+
+def _resolve_sound_asset_path(workspace_root: Path, value: str, mod_id: str) -> Path:
+    namespace = mod_id
+    sound_path = str(value or "").strip().replace("\\", "/")
+    if ":" in sound_path:
+        namespace, sound_path = sound_path.split(":", 1)
+
+    if sound_path.startswith("sounds/"):
+        sound_path = sound_path[len("sounds/") :]
+    if sound_path.endswith(".ogg"):
+        sound_path = sound_path[:-4]
+
+    return (
+        workspace_root
+        / "src"
+        / "main"
+        / "resources"
+        / "assets"
+        / safe_name(namespace)
+        / "sounds"
+        / f"{sound_path}.ogg"
+    )
+
+
+def _ogg_vorbis_duration_seconds(path: Path) -> int | None:
+    if not path.exists():
+        return None
+
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return None
+
+    header_index = data.find(b"\x01vorbis")
+    if header_index < 0 or header_index + 16 > len(data):
+        return None
+
+    sample_rate = int.from_bytes(data[header_index + 12 : header_index + 16], "little")
+    if sample_rate <= 0:
+        return None
+
+    max_granule = -1
+    index = 0
+    while True:
+        page_index = data.find(b"OggS", index)
+        if page_index < 0 or page_index + 27 > len(data):
+            break
+
+        segment_count = data[page_index + 26]
+        segment_table_start = page_index + 27
+        segment_table_end = segment_table_start + segment_count
+        if segment_table_end > len(data):
+            break
+
+        body_size = sum(data[segment_table_start:segment_table_end])
+        page_end = segment_table_end + body_size
+        granule = int.from_bytes(data[page_index + 6 : page_index + 14], "little", signed=True)
+        if granule >= 0:
+            max_granule = max(max_granule, granule)
+
+        index = page_end if page_end > page_index else page_index + 4
+
+    if max_granule < 0:
+        return None
+
+    return max(1, int((max_granule + sample_rate - 1) // sample_rate))
 
 
 def _sound_file_identifier(value, mod_id: str, item_name: str) -> str:

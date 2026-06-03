@@ -37,6 +37,49 @@
             "category": "display"
         },
         {
+            "id": "model_source",
+            "label": "Model Source",
+            "type": "select",
+            "values": [
+                "default",
+                "custom"
+            ],
+            "default": "default",
+            "category": "display"
+        },
+        {
+            "id": "default_model",
+            "label": "Default Model",
+            "type": "select",
+            "values": [
+                "cube",
+                "stairs",
+                "slab",
+                "fence",
+                "fence_gate",
+                "door",
+                "trapdoor",
+                "pane",
+                "wall"
+            ],
+            "default": "cube",
+            "visible_if": {
+                "field": "model_source",
+                "equals": "default"
+            },
+            "category": "display"
+        },
+        {
+            "id": "custom_model",
+            "label": "Custom Model",
+            "type": "model",
+            "visible_if": {
+                "field": "model_source",
+                "equals": "custom"
+            },
+            "category": "display"
+        },
+        {
             "id": "creative_inventory",
             "label": "Creative Inventory",
             "type": "select",
@@ -137,6 +180,23 @@
                 "pillar"
             ],
             "default": "none",
+            "category": "additional"
+        },
+        {
+            "id": "custom_hitbox_enabled",
+            "label": "Use Custom Hitbox",
+            "type": "boolean",
+            "default": false,
+            "category": "additional"
+        },
+        {
+            "id": "custom_hitbox",
+            "label": "Custom Hitbox",
+            "type": "hitbox_table",
+            "visible_if": {
+                "field": "custom_hitbox_enabled",
+                "equals": true
+            },
             "category": "additional"
         },
         {

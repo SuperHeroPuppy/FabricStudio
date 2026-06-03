@@ -41,6 +41,29 @@
         },
 
         {
+            "id": "model_source",
+            "label": "Model Source",
+            "type": "select",
+            "values": [
+                "default",
+                "custom"
+            ],
+            "default": "default",
+            "category": "display"
+        },
+
+        {
+            "id": "custom_model",
+            "label": "Custom Model",
+            "type": "model",
+            "visible_if": {
+                "field": "model_source",
+                "equals": "custom"
+            },
+            "category": "display"
+        },
+
+        {
             "id": "max_stack_size",
             "label": "Max Stack Size",
             "type": "number",
@@ -114,9 +137,21 @@
 
         {
             "id": "music_disc_length_seconds",
-            "label": "Disc Length Seconds",
+            "label": "Fallback Disc Length Seconds",
             "type": "number",
             "default": 120,
+            "visible_if": {
+                "field": "music_disc",
+                "equals": true
+            },
+            "category": "additional"
+        },
+
+        {
+            "id": "music_disc_auto_sync_length",
+            "label": "Auto Sync Disc Length",
+            "type": "boolean",
+            "default": true,
             "visible_if": {
                 "field": "music_disc",
                 "equals": true

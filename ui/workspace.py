@@ -7,11 +7,12 @@ from __future__ import annotations
 import json
 import tkinter as tk
 from pathlib import Path
-from tkinter import Menu
+from tkinter import Menu, filedialog
 
 import customtkinter as ctk
 
 from core.build_runner import BuildRunner
+from core.mod_icon import apply_mod_icon, upload_mod_icon
 from ui.debug_console import DebugConsole
 from ui.file_tree import FileTree
 from ui.tab_bar import TabBar
@@ -277,7 +278,7 @@ class WorkspacePage(ctk.CTkFrame):
         meta = self._read_project_info()
         window = ctk.CTkToplevel(self)
         window.title(f"{self.workspace_path.name} Settings")
-        window.geometry("480x300")
+        window.geometry("520x380")
         theme_window(window)
         show_on_top(window, self)
         window.grid_columnconfigure(1, weight=1)
@@ -301,6 +302,50 @@ class WorkspacePage(ctk.CTkFrame):
             entry.insert(0, str(meta.get(key, "")))
             fields[key] = entry
 
+        icon_label = ctk.CTkLabel(
+            window,
+            text=str(meta.get("icon", "No icon selected")),
+            text_color=COLORS["muted"],
+            anchor="w",
+        )
+        icon_label.grid(row=len(field_specs), column=1, sticky="ew", padx=(0, 18), pady=12)
+        ctk.CTkLabel(
+            window,
+            text="Mod Icon",
+            text_color=COLORS["muted"],
+        ).grid(row=len(field_specs), column=0, sticky="w", padx=18, pady=12)
+
+        def choose_icon() -> None:
+            selected = filedialog.askopenfilename(
+                title="Upload mod icon",
+                filetypes=[("PNG Images", "*.png")],
+                parent=window,
+            )
+            if not selected or not self.workspace_path:
+                return
+
+            try:
+                icon_path = upload_mod_icon(self.workspace_path, Path(selected), meta)
+            except OSError as exc:
+                self._show_settings_message(window, f"Could not upload icon: {exc}")
+                return
+
+            self._write_workspace_settings(meta)
+            icon_label.configure(text=icon_path)
+
+        ctk.CTkButton(
+            window,
+            text="Upload Icon",
+            command=choose_icon,
+        ).grid(
+            row=len(field_specs) + 1,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            padx=18,
+            pady=(2, 8),
+        )
+
         def save_settings() -> None:
             updated = {key: entry.get().strip() for key, entry in fields.items()}
             if not updated["mod_version"]:
@@ -316,7 +361,7 @@ class WorkspacePage(ctk.CTkFrame):
             text="Save Settings",
             command=save_settings,
         ).grid(
-            row=len(field_specs),
+            row=len(field_specs) + 2,
             column=0,
             columnspan=2,
             sticky="ew",
@@ -366,7 +411,19 @@ class WorkspacePage(ctk.CTkFrame):
                 payload["name"] = meta.get("name", self.workspace_path.name)
                 payload["description"] = meta.get("description", "")
                 payload["authors"] = [meta.get("author", "Unknown")]
+                if meta.get("icon"):
+                    payload["icon"] = meta["icon"]
                 mod_json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        apply_mod_icon(self.workspace_path, meta)
+
+    def _show_settings_message(self, parent, message: str) -> None:
+        window = ctk.CTkToplevel(parent)
+        window.title("Settings")
+        window.geometry("360x150")
+        theme_window(window)
+        show_on_top(window, parent)
+        ctk.CTkLabel(window, text=message, wraplength=300).pack(expand=True, padx=18, pady=(20, 10))
+        ctk.CTkButton(window, text="OK", width=80, command=window.destroy).pack(pady=(0, 16))
 
     def _read_gradle_property(self, key: str) -> str:
 

@@ -15,6 +15,7 @@ import customtkinter as ctk
 
 from core.build_runner import BuildRunner
 from core.data_store import COLORS, TOOL_BUILD, TOOL_CHANNEL, TOOL_NAME, TOOL_VERSION, get_fabric_versions
+from core.mod_icon import apply_mod_icon, upload_mod_icon
 from core.project_generator import ProjectData, get_supported_minecraft_versions
 from ui.theme import themed_combo_box, themed_entry, theme_window
 from ui.window_utils import show_on_top
@@ -265,7 +266,7 @@ class SetupPage(ctk.CTkFrame):
         meta = self._read_workspace_meta(workspace)
         window = ctk.CTkToplevel(self)
         window.title(f"{workspace.name} Settings")
-        window.geometry("460x320")
+        window.geometry("500x410")
         theme_window(window)
         show_on_top(window, self)
         window.grid_columnconfigure(1, weight=1)
@@ -285,13 +286,49 @@ class SetupPage(ctk.CTkFrame):
             entry.insert(0, str(meta.get(key, "")))
             fields[key] = entry
 
+        icon_label = ctk.CTkLabel(
+            window,
+            text=str(meta.get("icon", "No icon selected")),
+            text_color=COLORS["muted"],
+            anchor="w",
+        )
+        icon_label.grid(row=len(field_specs), column=1, sticky="ew", padx=(0, 18), pady=12)
+        ctk.CTkLabel(window, text="Mod Icon", text_color=COLORS["muted"]).grid(
+            row=len(field_specs), column=0, sticky="w", padx=18, pady=12
+        )
+
+        def choose_icon() -> None:
+            selected = filedialog.askopenfilename(
+                title="Upload mod icon",
+                filetypes=[("PNG Images", "*.png")],
+                parent=window,
+            )
+            if not selected:
+                return
+            try:
+                icon_path = upload_mod_icon(workspace, Path(selected), meta)
+            except OSError as exc:
+                messagebox.showerror("Upload Failed", f"Could not upload icon: {exc}", parent=window)
+                return
+            self._write_workspace_meta(workspace, meta)
+            icon_label.configure(text=icon_path)
+
+        ctk.CTkButton(window, text="Upload Icon", command=choose_icon).grid(
+            row=len(field_specs) + 1,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            padx=18,
+            pady=(2, 8),
+        )
+
         def save_settings() -> None:
             meta.update({key: entry.get().strip() for key, entry in fields.items()})
             self._write_workspace_meta(workspace, meta)
             self.refresh_workspace_lists()
             window.destroy()
 
-        ctk.CTkButton(window, text="Save Settings", command=save_settings).grid(row=len(field_specs), column=0, columnspan=2, sticky="ew", padx=18, pady=(10, 18))
+        ctk.CTkButton(window, text="Save Settings", command=save_settings).grid(row=len(field_specs) + 2, column=0, columnspan=2, sticky="ew", padx=18, pady=(10, 18))
 
     def _delete_workspace(self, workspace: Path) -> None:
         if workspace.parent != self.workspaces_root or not workspace.exists():
@@ -377,7 +414,10 @@ class SetupPage(ctk.CTkFrame):
             payload["name"] = meta.get("name", workspace.name)
             payload["description"] = meta.get("description", "")
             payload["authors"] = [meta.get("author", "Unknown")]
+            if meta.get("icon"):
+                payload["icon"] = meta["icon"]
             mod_json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        apply_mod_icon(workspace, meta)
 
     def _clear_panel(self, panel: ctk.CTkScrollableFrame) -> None:
         for widget in panel.winfo_children():

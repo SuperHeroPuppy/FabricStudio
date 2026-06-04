@@ -10,6 +10,8 @@ import json
 import re
 from pathlib import Path
 
+from core.creative_tabs import creative_tabs, custom_tab_id, write_creative_entries, write_custom_creative_tabs
+
 
 FABRIC_API_VERSION = "0.92.9+1.20.1"
 
@@ -28,7 +30,7 @@ def generate(data: dict, workspace_root: Path, tool) -> None:
     package_name = _package_declaration(project, mod_id)
     main_class = _class_name(mod_id)
     texture_path = _normalize_texture(data.get("texture"), mod_id, item_name)
-    form_data = _form_data(data, item_name, display_name, texture_path, mod_id, workspace_root)
+    form_data = _form_data(data, item_name, display_name, texture_path, mod_id, workspace_root, project)
 
     java_root = workspace_root / "src" / "main" / "java" / Path(*package_name.split("."))
     resources_root = workspace_root / "src" / "main" / "resources"
@@ -36,13 +38,16 @@ def generate(data: dict, workspace_root: Path, tool) -> None:
 
     touched_files: list[Path] = []
     _ensure_fabric_api_dependency(workspace_root)
+    item_groups_path = write_custom_creative_tabs(workspace_root, project)
+    if item_groups_path:
+        touched_files.append(item_groups_path)
 
     mod_items_path = java_root / "item" / "ModItems.java"
-    _write_mod_items(mod_items_path, package_name, main_class, mod_id, item_name, form_data)
+    _write_mod_items(mod_items_path, package_name, main_class, mod_id, item_name, form_data, project)
     touched_files.append(mod_items_path)
 
     main_class_path = java_root / f"{main_class}.java"
-    _update_main_class(main_class_path, package_name, main_class, mod_id)
+    _update_main_class(main_class_path, package_name, main_class, mod_id, project)
     touched_files.append(main_class_path)
 
     model_path = assets_root / "models" / "item" / f"{item_name}.json"
@@ -105,6 +110,7 @@ def generate(data: dict, workspace_root: Path, tool) -> None:
     }
 
     _write_json(base_root / "generated_info.json", generated_info)
+    touched_files.append(write_creative_entries(workspace_root, project))
 
 
 def delete(record: dict, workspace_root: Path, tool) -> None:
@@ -137,6 +143,7 @@ def delete(record: dict, workspace_root: Path, tool) -> None:
         _remove_empty_generated_dir(info_path.parent)
     else:
         _remove_empty_generated_dir(workspace_root / "generated" / "item" / item_name)
+    write_creative_entries(workspace_root, project)
 
 
 def _load_project_info(workspace_root: Path) -> dict:
@@ -164,6 +171,7 @@ def _write_mod_items(
     mod_id: str,
     item_name: str,
     data: dict,
+    project: dict,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     field_name = _java_constant(item_name)
@@ -171,14 +179,14 @@ def _write_mod_items(
 
     if not path.exists():
         path.write_text(
-            _mod_items_source(package_name, main_class, mod_id, item_name, data),
+            _mod_items_source(package_name, main_class, mod_id, item_name, data, project),
             encoding="utf-8",
         )
         return
 
     content = path.read_text(encoding="utf-8")
-    content = _ensure_imports(content, _item_imports(data, package_name))
-    content = _upsert_creative_inventory_entry(content, field_name, data)
+    content = _ensure_imports(content, _item_imports(data, package_name, project))
+    content = _upsert_creative_inventory_entry(content, field_name, data, project)
 
     field_pattern = (
         rf"    public static final Item {re.escape(field_name)} = "
@@ -204,12 +212,13 @@ def _mod_items_source(
     mod_id: str,
     item_name: str,
     data: dict,
+    project: dict,
 ) -> str:
     field_name = _java_constant(item_name)
     imports = "\n".join(
         [
             f"import {package_name}.{main_class};",
-            *_item_imports(data, package_name),
+            *_item_imports(data, package_name, project),
             "import net.minecraft.registry.Registries;",
             "import net.minecraft.registry.Registry;",
             "import net.minecraft.util.Identifier;",
@@ -227,20 +236,27 @@ public class ModItems {{
     }}
 
     public static void registerModItems() {{
-{_creative_inventory_source(field_name, data)}\
+{_creative_inventory_source(field_name, data, project)}\
         System.out.println("Registering items for {mod_id}");
     }}
 }}
 """
 
 
-def _update_main_class(path: Path, package_name: str, main_class: str, mod_id: str) -> None:
+def _update_main_class(
+    path: Path,
+    package_name: str,
+    main_class: str,
+    mod_id: str,
+    project: dict | None = None,
+) -> None:
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(_main_class_source(package_name, main_class, mod_id), encoding="utf-8")
-        return
+        content = path.read_text(encoding="utf-8")
+    else:
+        content = path.read_text(encoding="utf-8")
 
-    content = path.read_text(encoding="utf-8")
     content = _remove_missing_block_registration(
         content,
         path.parent / "block" / "ModBlocks.java",
@@ -262,6 +278,14 @@ def _update_main_class(path: Path, package_name: str, main_class: str, mod_id: s
     call = "        ModItems.registerModItems();"
     if call not in content:
         content = _insert_on_initialize_call(content, call)
+
+    if project and creative_tabs(project):
+        import_line = f"import {package_name}.item.ModItemGroups;"
+        if import_line not in content:
+            content = _insert_import(content, import_line)
+        group_call = "        ModItemGroups.registerItemGroups();"
+        if group_call not in content:
+            content = _insert_on_initialize_call(content, group_call)
 
     path.write_text(content, encoding="utf-8")
 
@@ -365,6 +389,7 @@ def _form_data(
     texture_path: str,
     mod_id: str,
     workspace_root: Path,
+    project: dict | None = None,
 ) -> dict:
     food_enabled = _as_bool(data.get("food_enabled", False))
     music_disc = _as_bool(data.get("music_disc", False))
@@ -377,7 +402,7 @@ def _form_data(
         "display_name": display_name,
         "texture": texture_path,
         "max_stack_size": _clamped_int(data.get("max_stack_size", 64), 1, 64, 64),
-        "creative_inventory": _creative_inventory(data.get("creative_inventory", "ingredients")),
+        "creative_inventory": _creative_inventory(data.get("creative_inventory", "ingredients"), project),
         "model_source": model_source,
         "custom_model": custom_model,
         "music_disc": music_disc,
@@ -472,18 +497,16 @@ def _normalize_model_identifier(value, mod_id: str, model_type: str) -> str:
     return f"{namespace}:{path}"
 
 
-def _item_imports(data: dict, package_name: str) -> list[str]:
+def _item_imports(data: dict, package_name: str, project: dict | None = None) -> list[str]:
     imports = [
         "import net.fabricmc.fabric.api.item.v1.FabricItemSettings;",
         "import net.minecraft.item.Item;",
     ]
-    if _creative_inventory(data.get("creative_inventory", "ingredients")) != "none":
-        imports.extend(
-            [
-                "import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;",
-                "import net.minecraft.item.ItemGroups;",
-            ]
-        )
+    creative_inventory = _creative_inventory(data.get("creative_inventory", "ingredients"), project)
+    if creative_inventory != "none":
+        imports.append("import net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents;")
+        if not creative_inventory.startswith("custom:"):
+            imports.append("import net.minecraft.item.ItemGroups;")
     if _as_bool(data.get("music_disc", False)):
         imports.extend(
             [
@@ -632,7 +655,12 @@ def _normalize_item_identifier(value) -> str:
     return f"{namespace}:{path}"
 
 
-def _creative_inventory(value) -> str:
+def _creative_inventory(value, project: dict | None = None) -> str:
+    if project:
+        tab_id = custom_tab_id(str(value or ""), project)
+        if tab_id:
+            return f"custom:{tab_id}"
+
     normalized = safe_name(str(value or "ingredients"))
     return normalized if normalized in _creative_inventory_groups() else "ingredients"
 
@@ -653,25 +681,27 @@ def _creative_inventory_groups() -> dict[str, str]:
     }
 
 
-def _creative_inventory_source(field_name: str, data: dict) -> str:
-    creative_inventory = _creative_inventory(data.get("creative_inventory", "ingredients"))
-    group = _creative_inventory_groups().get(creative_inventory, "")
-    if not group:
-        return ""
-
-    return (
-        f"        ItemGroupEvents.modifyEntriesEvent(ItemGroups.{group})"
-        f".register(entries -> entries.add({field_name}));\n"
-    )
+def _creative_inventory_source(field_name: str, data: dict, project: dict | None = None) -> str:
+    return ""
 
 
-def _upsert_creative_inventory_entry(content: str, field_name: str, data: dict) -> str:
-    pattern = (
+def _upsert_creative_inventory_entry(
+    content: str,
+    field_name: str,
+    data: dict,
+    project: dict | None = None,
+) -> str:
+    vanilla_pattern = (
         r"        ItemGroupEvents\.modifyEntriesEvent\(ItemGroups\.[A-Z_]+\)"
         rf"\.register\(entries -> entries\.add\({re.escape(field_name)}\)\);\n"
     )
-    content = re.sub(pattern, "", content)
-    line = _creative_inventory_source(field_name, data)
+    custom_pattern = (
+        r"        ItemGroupEvents\.modifyEntriesEvent\(ModItemGroups\.[A-Z0-9_]+\)"
+        rf"\.register\(entries -> entries\.add\({re.escape(field_name)}\)\);\n"
+    )
+    content = re.sub(vanilla_pattern, "", content)
+    content = re.sub(custom_pattern, "", content)
+    line = _creative_inventory_source(field_name, data, project)
     if not line:
         return content
 
@@ -1006,6 +1036,11 @@ def _remove_mod_item(path: Path, item_name: str) -> None:
         rf"\.register\(entries -> entries\.add\({re.escape(field_name)}\)\);\n"
     )
     updated = re.sub(creative_pattern, "", updated)
+    custom_creative_pattern = (
+        r"        ItemGroupEvents\.modifyEntriesEvent\(ModItemGroups\.[A-Z0-9_]+\)"
+        rf"\.register\(entries -> entries\.add\({re.escape(field_name)}\)\);\n"
+    )
+    updated = re.sub(custom_creative_pattern, "", updated)
     updated = re.sub(r"\n{3,}", "\n\n", updated)
 
     if updated != content:

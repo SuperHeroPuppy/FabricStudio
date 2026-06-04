@@ -9,12 +9,19 @@ import json
 import re
 import shutil
 from pathlib import Path
-from tkinter import BooleanVar, filedialog, messagebox
+from tkinter import BooleanVar, Menu, filedialog, messagebox
 
 import customtkinter as ctk
 
+from core.creative_tabs import (
+    creative_tabs,
+    custom_tab_values,
+    safe_name as safe_creative_name,
+    write_creative_entries,
+    write_custom_creative_tabs,
+)
 from core.data_store import COLORS
-from ui.theme import themed_combo_box, themed_entry, theme_window
+from ui.theme import themed_combo_box, themed_entry, theme_menu, theme_window
 from ui.window_utils import show_on_top
 
 try:
@@ -282,6 +289,14 @@ class GeneratorWindow(ctk.CTkToplevel):
         self.mod_id = self._safe_name(
             self.project_info.get("mod_id", self.workspace_path.name.lower())
         )
+        self.creative_tabs = creative_tabs(self.project_info)
+        self.dragging_tab_id: str | None = None
+        self.creative_tab_rows: dict[str, ctk.CTkFrame] = {}
+        self.creative_tab_menu_target_id: str | None = None
+        self.creative_tab_order_menu = Menu(self, tearoff=0)
+        theme_menu(self.creative_tab_order_menu)
+        self.generated_item_order_menu = Menu(self, tearoff=0)
+        theme_menu(self.generated_item_order_menu)
 
         self.active_page = "home"
         self.active_tool = self._first_supported_tool()
@@ -310,7 +325,7 @@ class GeneratorWindow(ctk.CTkToplevel):
 
         self.access_bar = ctk.CTkFrame(self, fg_color=COLORS["panel"], corner_radius=0)
         self.access_bar.grid(row=0, column=0, sticky="nsew")
-        self.access_bar.grid_rowconfigure(3, weight=1)
+        self.access_bar.grid_rowconfigure(4, weight=1)
 
         ctk.CTkLabel(
             self.access_bar,
@@ -322,6 +337,7 @@ class GeneratorWindow(ctk.CTkToplevel):
         self.nav_buttons: dict[str, ctk.CTkButton] = {}
         self._add_nav_button("home", "Home", 1)
         self._add_nav_button("assets", "Asset Browser", 2)
+        self._add_nav_button("creative_tabs", "Creative Tabs", 3)
 
         self.main = ctk.CTkFrame(self, fg_color=COLORS["bg"], corner_radius=0)
         self.main.grid(row=0, column=1, sticky="nsew")
@@ -394,6 +410,12 @@ class GeneratorWindow(ctk.CTkToplevel):
                 text="Browse textures, audio, and models. Selecting an asset can fill the active chip."
             )
             self._build_assets_page()
+            return
+
+        if page == "creative_tabs":
+            self.title_label.configure(text="Creative Tabs")
+            self.status_label.configure(text="Create custom tabs and drag rows to reorder them.")
+            self._build_creative_tabs_page()
             return
 
         if page == "configure":
@@ -513,6 +535,17 @@ class GeneratorWindow(ctk.CTkToplevel):
         actions.grid(row=3, column=0, sticky="ew", padx=14, pady=(0, 14))
         actions.grid_columnconfigure(0, weight=1)
         actions.grid_columnconfigure(1, weight=1)
+        actions.grid_columnconfigure(2, weight=1)
+
+        order_button = ctk.CTkButton(
+            actions,
+            text="Order",
+            height=32,
+            command=lambda item=record: self._show_generated_item_order_menu_for_record(item),
+        )
+        order_button.grid(row=0, column=0, sticky="ew", padx=(0, 5))
+        if len(self._records_for_creative_inventory(self._record_creative_inventory(record))) <= 1:
+            order_button.configure(state="disabled")
 
         if tool and tool.supported:
             ctk.CTkButton(
@@ -520,13 +553,13 @@ class GeneratorWindow(ctk.CTkToplevel):
                 text="Edit",
                 height=32,
                 command=lambda item=record, spec=tool: self._edit_generated(item, spec),
-            ).grid(row=0, column=0, sticky="ew", padx=(0, 5))
+            ).grid(row=0, column=1, sticky="ew", padx=5)
         else:
             ctk.CTkButton(actions, text="Unavailable", state="disabled").grid(
                 row=0,
-                column=0,
+                column=1,
                 sticky="ew",
-                padx=(0, 5),
+                padx=5,
             )
 
         ctk.CTkButton(
@@ -536,7 +569,7 @@ class GeneratorWindow(ctk.CTkToplevel):
             fg_color="#b91c1c",
             hover_color="#991b1b",
             command=lambda item=record: self._delete_generated(item),
-        ).grid(row=0, column=1, sticky="ew", padx=(5, 0))
+        ).grid(row=0, column=2, sticky="ew", padx=(5, 0))
 
     def _build_configure_page(self) -> None:
         self.inputs.clear()
@@ -678,7 +711,7 @@ class GeneratorWindow(ctk.CTkToplevel):
             return
 
         if field_type == "select":
-            values = [str(value) for value in field.get("values", [])]
+            values = self._select_values_for_field(field)
             initial_value = self._initial_value(tool_id, field_id)
             selected = str(
                 initial_value
@@ -904,6 +937,370 @@ class GeneratorWindow(ctk.CTkToplevel):
         entry.set(str(initial_value if initial_value is not None else (values[0] if values else "")))
         entry.grid(row=1, column=0, sticky="ew")
         self.inputs[key] = entry
+
+    def _build_creative_tabs_page(self) -> None:
+        ctk.CTkButton(
+            self.header_action_frame,
+            text="New Tab",
+            width=104,
+            command=lambda: self._open_creative_tab_editor(),
+        ).pack(side="right")
+
+        panel = ctk.CTkFrame(self.body, fg_color=COLORS["panel"], corner_radius=8)
+        panel.grid(row=0, column=0, sticky="nsew")
+        panel.grid_columnconfigure(0, weight=1)
+        panel.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            panel,
+            text="Custom creative tabs",
+            font=("Segoe UI", 18, "bold"),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=18, pady=(16, 8))
+
+        list_frame = ctk.CTkScrollableFrame(panel, fg_color="transparent")
+        list_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=(0, 14))
+        list_frame.grid_columnconfigure(0, weight=1)
+        self.creative_tab_rows = {}
+
+        if not self.creative_tabs:
+            ctk.CTkLabel(
+                list_frame,
+                text="No custom tabs yet.",
+                text_color=COLORS["muted"],
+                anchor="w",
+            ).grid(row=0, column=0, sticky="ew", padx=8, pady=8)
+            return
+
+        for row, tab in enumerate(self.creative_tabs):
+            self._build_creative_tab_row(list_frame, tab, row)
+
+    def _build_creative_tab_row(self, parent, tab: dict, row: int) -> None:
+        frame = ctk.CTkFrame(parent, fg_color=COLORS["panel_alt"], corner_radius=8)
+        frame.grid(row=row, column=0, sticky="ew", padx=4, pady=5)
+        frame.grid_columnconfigure(2, weight=1)
+        self.creative_tab_rows[tab["id"]] = frame
+
+        handle = ctk.CTkLabel(
+            frame,
+            text="::",
+            width=32,
+            text_color=COLORS["muted"],
+            font=("Segoe UI", 18, "bold"),
+            cursor="hand2",
+        )
+        handle.grid(row=0, column=0, rowspan=2, sticky="ns", padx=(10, 4), pady=10)
+        handle.bind("<ButtonPress-1>", lambda event, tab_id=tab["id"]: self._start_tab_drag(tab_id))
+        handle.bind("<B1-Motion>", lambda event, tab_id=tab["id"]: self._drag_tab(tab_id, event.y_root))
+        handle.bind("<ButtonRelease-1>", lambda _event: self._finish_tab_drag())
+
+        ctk.CTkLabel(
+            frame,
+            text=str(self.creative_tabs.index(tab) + 1),
+            width=34,
+            text_color=COLORS["muted"],
+        ).grid(row=0, column=1, rowspan=2, sticky="ns", padx=(0, 8), pady=10)
+
+        ctk.CTkLabel(
+            frame,
+            text=tab["display_name"],
+            font=("Segoe UI", 15, "bold"),
+            anchor="w",
+        ).grid(row=0, column=2, sticky="ew", padx=(0, 10), pady=(10, 0))
+
+        ctk.CTkLabel(
+            frame,
+            text=f"custom:{tab['id']}  icon: {tab['icon_item']}",
+            text_color=COLORS["muted"],
+            anchor="w",
+        ).grid(row=1, column=2, sticky="ew", padx=(0, 10), pady=(0, 10))
+
+        order_button = ctk.CTkButton(
+            frame,
+            text="Order",
+            width=76,
+        )
+        order_button.configure(
+            command=lambda tab_id=tab["id"], anchor=order_button: self._show_creative_tab_order_menu(tab_id, anchor)
+        )
+        order_button.grid(row=0, column=3, rowspan=2, padx=(0, 8), pady=10)
+
+        ctk.CTkButton(
+            frame,
+            text="Edit",
+            width=72,
+            command=lambda item=tab: self._open_creative_tab_editor(item),
+        ).grid(row=0, column=4, rowspan=2, padx=(0, 8), pady=10)
+
+        ctk.CTkButton(
+            frame,
+            text="Delete",
+            width=76,
+            fg_color="#b91c1c",
+            hover_color="#991b1b",
+            command=lambda item=tab: self._delete_creative_tab(item),
+        ).grid(row=0, column=5, rowspan=2, padx=(0, 10), pady=10)
+
+        for widget in (frame, handle):
+            widget.bind("<Button-3>", lambda event, tab_id=tab["id"]: self._show_creative_tab_order_menu(tab_id, event))
+
+    def _start_tab_drag(self, tab_id: str) -> None:
+        self.dragging_tab_id = tab_id
+
+    def _drag_tab(self, tab_id: str, y_root: int) -> None:
+        if self.dragging_tab_id != tab_id:
+            return
+
+        ids = [tab["id"] for tab in self.creative_tabs]
+        if tab_id not in ids:
+            return
+
+        current_index = ids.index(tab_id)
+        target_index = 0
+        for tab in self.creative_tabs:
+            if tab["id"] == tab_id:
+                continue
+            row = self.creative_tab_rows.get(tab["id"])
+            if row and y_root > row.winfo_rooty() + (row.winfo_height() / 2):
+                target_index += 1
+
+        target_index = max(0, min(target_index, len(self.creative_tabs) - 1))
+        if target_index == current_index:
+            return
+
+        tab = self.creative_tabs.pop(current_index)
+        self.creative_tabs.insert(target_index, tab)
+        self._save_creative_tabs(write_sources=True)
+        self._show_page("creative_tabs")
+        self.dragging_tab_id = tab_id
+
+    def _finish_tab_drag(self) -> None:
+        if self.dragging_tab_id:
+            self.status_label.configure(text="Creative tab order saved.")
+        self.dragging_tab_id = None
+
+    def _show_creative_tab_order_menu(self, tab_id: str, anchor) -> None:
+        ids = [tab["id"] for tab in self.creative_tabs]
+        if tab_id not in ids:
+            return
+
+        index = ids.index(tab_id)
+        self.creative_tab_menu_target_id = tab_id
+        self.creative_tab_order_menu.delete(0, "end")
+        self.creative_tab_order_menu.add_command(
+            label="Move to Top",
+            command=lambda: self._move_creative_tab(tab_id, 0),
+            state="disabled" if index == 0 else "normal",
+        )
+        self.creative_tab_order_menu.add_command(
+            label="Move Up",
+            command=lambda: self._move_creative_tab(tab_id, index - 1),
+            state="disabled" if index == 0 else "normal",
+        )
+        self.creative_tab_order_menu.add_command(
+            label="Move Down",
+            command=lambda: self._move_creative_tab(tab_id, index + 1),
+            state="disabled" if index >= len(self.creative_tabs) - 1 else "normal",
+        )
+        self.creative_tab_order_menu.add_command(
+            label="Move to Bottom",
+            command=lambda: self._move_creative_tab(tab_id, len(self.creative_tabs) - 1),
+            state="disabled" if index >= len(self.creative_tabs) - 1 else "normal",
+        )
+
+        if hasattr(anchor, "x_root") and hasattr(anchor, "y_root"):
+            x_root = anchor.x_root
+            y_root = anchor.y_root
+        else:
+            x_root = anchor.winfo_rootx()
+            y_root = anchor.winfo_rooty() + anchor.winfo_height()
+
+        self.creative_tab_order_menu.tk_popup(x_root, y_root)
+
+    def _move_creative_tab(self, tab_id: str, target_index: int) -> None:
+        ids = [tab["id"] for tab in self.creative_tabs]
+        if tab_id not in ids:
+            return
+
+        current_index = ids.index(tab_id)
+        target_index = max(0, min(target_index, len(self.creative_tabs) - 1))
+        if target_index == current_index:
+            return
+
+        tab = self.creative_tabs.pop(current_index)
+        self.creative_tabs.insert(target_index, tab)
+        self._save_creative_tabs(write_sources=True)
+        self._show_page("creative_tabs")
+        self.status_label.configure(text="Creative tab order saved.")
+
+    def _show_generated_item_order_menu_for_record(self, record: dict) -> None:
+        self._show_generated_item_order_menu(record, self.winfo_pointerx(), self.winfo_pointery())
+
+    def _show_generated_item_order_menu(self, record: dict, x_root: int, y_root: int) -> None:
+        tab = self._record_creative_inventory(record)
+        records = self._records_for_creative_inventory(tab)
+        key = self._generated_record_key(record)
+        keys = [self._generated_record_key(item) for item in records]
+        if key not in keys or len(records) <= 1:
+            return
+
+        index = keys.index(key)
+        self.generated_item_order_menu.delete(0, "end")
+        self.generated_item_order_menu.add_command(
+            label="Move to Top",
+            command=lambda item=record: self._move_generated_item(item, 0),
+            state="disabled" if index == 0 else "normal",
+        )
+        self.generated_item_order_menu.add_command(
+            label="Move Up",
+            command=lambda item=record: self._move_generated_item(item, index - 1),
+            state="disabled" if index == 0 else "normal",
+        )
+        self.generated_item_order_menu.add_command(
+            label="Move Down",
+            command=lambda item=record: self._move_generated_item(item, index + 1),
+            state="disabled" if index >= len(records) - 1 else "normal",
+        )
+        self.generated_item_order_menu.add_command(
+            label="Move to Bottom",
+            command=lambda item=record: self._move_generated_item(item, len(records) - 1),
+            state="disabled" if index >= len(records) - 1 else "normal",
+        )
+        self.generated_item_order_menu.tk_popup(x_root, y_root)
+
+    def _move_generated_item(self, record: dict, target_index: int) -> None:
+        tab = self._record_creative_inventory(record)
+        records = self._records_for_creative_inventory(tab)
+        key = self._generated_record_key(record)
+        keys = [self._generated_record_key(item) for item in records]
+        if key not in keys:
+            return
+
+        current_index = keys.index(key)
+        target_index = max(0, min(target_index, len(keys) - 1))
+        if target_index == current_index:
+            return
+
+        moved_key = keys.pop(current_index)
+        keys.insert(target_index, moved_key)
+        order_config = self.project_info.setdefault("creative_item_order", {})
+        if not isinstance(order_config, dict):
+            order_config = {}
+            self.project_info["creative_item_order"] = order_config
+        order_config[tab] = keys
+        self._reconcile_creative_item_order(write_sources=True)
+        self._show_page("home")
+        self.status_label.configure(text="Creative item order saved.")
+
+    def _open_creative_tab_editor(self, tab: dict | None = None) -> None:
+        window = ctk.CTkToplevel(self)
+        window.title("Creative Tab")
+        window.geometry("440x260")
+        theme_window(window)
+        show_on_top(window, self)
+        window.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(window, text="Tab ID", text_color=COLORS["muted"]).grid(
+            row=0, column=0, sticky="w", padx=18, pady=(20, 10)
+        )
+        id_entry = themed_entry(window, height=34)
+        id_entry.grid(row=0, column=1, sticky="ew", padx=(0, 18), pady=(20, 10))
+        id_entry.insert(0, str(tab.get("id", "")) if tab else "")
+
+        ctk.CTkLabel(window, text="Display Name", text_color=COLORS["muted"]).grid(
+            row=1, column=0, sticky="w", padx=18, pady=10
+        )
+        name_entry = themed_entry(window, height=34)
+        name_entry.grid(row=1, column=1, sticky="ew", padx=(0, 18), pady=10)
+        name_entry.insert(0, str(tab.get("display_name", "")) if tab else "")
+
+        ctk.CTkLabel(window, text="Icon Item", text_color=COLORS["muted"]).grid(
+            row=2, column=0, sticky="w", padx=18, pady=10
+        )
+        icon_entry = themed_entry(window, height=34)
+        icon_entry.grid(row=2, column=1, sticky="ew", padx=(0, 18), pady=10)
+        icon_entry.insert(0, str(tab.get("icon_item", "minecraft:book")) if tab else "minecraft:book")
+
+        def save_tab() -> None:
+            old_id = str(tab.get("id", "")) if tab else ""
+            tab_id = safe_creative_name(id_entry.get())
+            display_name = name_entry.get().strip() or " ".join(part.capitalize() for part in tab_id.split("_"))
+            icon_item = icon_entry.get().strip() or "minecraft:book"
+
+            if not tab_id:
+                self.status_label.configure(text="Creative tab ID is required.")
+                return
+            if old_id and old_id != tab_id and self._creative_tab_in_use(old_id):
+                self.status_label.configure(text=f"custom:{old_id} is used by generated chips.")
+                return
+            if any(existing["id"] == tab_id and existing is not tab for existing in self.creative_tabs):
+                self.status_label.configure(text=f"custom:{tab_id} already exists.")
+                return
+
+            payload = {
+                "id": tab_id,
+                "display_name": display_name,
+                "icon_item": icon_item,
+            }
+            if tab:
+                tab.update(payload)
+            else:
+                self.creative_tabs.append(payload)
+
+            self._save_creative_tabs(write_sources=True)
+            window.destroy()
+            self._show_page("creative_tabs")
+            self.status_label.configure(text=f"Saved custom:{tab_id}.")
+
+        ctk.CTkButton(window, text="Save Tab", command=save_tab).grid(
+            row=3,
+            column=0,
+            columnspan=2,
+            sticky="ew",
+            padx=18,
+            pady=(18, 10),
+        )
+
+    def _delete_creative_tab(self, tab: dict) -> None:
+        tab_id = str(tab.get("id", ""))
+        if self._creative_tab_in_use(tab_id):
+            self.status_label.configure(text=f"custom:{tab_id} is used by generated chips.")
+            return
+
+        if not messagebox.askyesno(
+            "Delete Creative Tab",
+            f"Delete custom:{tab_id}?",
+            parent=self,
+        ):
+            return
+
+        self.creative_tabs = [item for item in self.creative_tabs if item["id"] != tab_id]
+        self._save_creative_tabs(write_sources=True)
+        self._show_page("creative_tabs")
+        self.status_label.configure(text=f"Deleted custom:{tab_id}.")
+
+    def _creative_tab_in_use(self, tab_id: str) -> bool:
+        value = f"custom:{tab_id}"
+        for record in self._generated_records():
+            form_data = record.get("form_data", {})
+            if isinstance(form_data, dict) and form_data.get("creative_inventory") == value:
+                return True
+        return False
+
+    def _save_creative_tabs(self, write_sources: bool = False) -> None:
+        self.project_info["creative_tabs"] = list(self.creative_tabs)
+        self._write_project_info()
+        if write_sources:
+            write_custom_creative_tabs(self.workspace_path, self.project_info)
+
+    def _select_values_for_field(self, field: dict) -> list[str]:
+        values = [str(value) for value in field.get("values", [])]
+        if field.get("id") == "creative_inventory":
+            custom_values = custom_tab_values(self.project_info)
+            for value in custom_values:
+                if value not in values:
+                    values.append(value)
+        return values
 
     def _build_assets_page(self) -> None:
         ctk.CTkButton(
@@ -1493,6 +1890,7 @@ class GeneratorWindow(ctk.CTkToplevel):
 
         self.editing_record = None
         self.draft_values.pop(self.active_tool.id, None)
+        self._reconcile_creative_item_order(write_sources=True)
         self._show_page("home")
         self.status_label.configure(
             text=f"{self.active_tool.name} {'updated' if old_record else 'generated'}."
@@ -1508,6 +1906,7 @@ class GeneratorWindow(ctk.CTkToplevel):
             return
 
         self._delete_record_files(record)
+        self._reconcile_creative_item_order(write_sources=True)
         if self.editing_record is record:
             self.editing_record = None
         self._show_page("home")
@@ -1670,6 +2069,78 @@ class GeneratorWindow(ctk.CTkToplevel):
                 str(item.get("display_name") or item.get("id", "")),
             ),
         )
+
+    def _generated_record_key(self, record: dict) -> str:
+        return f"{record.get('type')}:{self._safe_name(str(record.get('id') or ''))}"
+
+    def _record_creative_inventory(self, record: dict) -> str:
+        form_data = record.get("form_data", {})
+        if not isinstance(form_data, dict):
+            form_data = {}
+        value = str(form_data.get("creative_inventory") or "").strip()
+        if value == "none":
+            return "none"
+        if value.startswith("custom:"):
+            return f"custom:{safe_creative_name(value.split(':', 1)[1])}"
+        return self._safe_name(value or ("building_blocks" if record.get("type") == "block" else "ingredients"))
+
+    def _records_for_creative_inventory(self, tab: str) -> list[dict]:
+        if not tab or tab == "none":
+            return []
+
+        records = [
+            record
+            for record in self._generated_records()
+            if record.get("type") in {"block", "item"} and self._record_creative_inventory(record) == tab
+        ]
+        order_config = self.project_info.get("creative_item_order", {})
+        configured = order_config.get(tab, []) if isinstance(order_config, dict) else []
+        configured_keys = [str(key) for key in configured] if isinstance(configured, list) else []
+        by_key = {self._generated_record_key(record): record for record in records}
+
+        ordered: list[dict] = []
+        seen: set[str] = set()
+        for key in configured_keys:
+            record = by_key.get(key)
+            if record is not None and key not in seen:
+                ordered.append(record)
+                seen.add(key)
+
+        remaining = [record for record in records if self._generated_record_key(record) not in seen]
+        remaining.sort(key=lambda item: (str(item.get("display_name") or item.get("id") or ""), str(item.get("type") or "")))
+        ordered.extend(remaining)
+        return ordered
+
+    def _reconcile_creative_item_order(self, write_sources: bool = False) -> None:
+        records_by_tab: dict[str, list[dict]] = {}
+        for record in self._generated_records():
+            if record.get("type") not in {"block", "item"}:
+                continue
+            tab = self._record_creative_inventory(record)
+            if not tab or tab == "none":
+                continue
+            records_by_tab.setdefault(tab, []).append(record)
+
+        existing = self.project_info.get("creative_item_order", {})
+        if not isinstance(existing, dict):
+            existing = {}
+
+        next_order: dict[str, list[str]] = {}
+        for tab, records in records_by_tab.items():
+            valid_keys = {self._generated_record_key(record) for record in records}
+            configured = existing.get(tab, [])
+            configured_keys = [str(key) for key in configured] if isinstance(configured, list) else []
+            ordered = [key for key in configured_keys if key in valid_keys]
+            seen = set(ordered)
+            missing = [record for record in records if self._generated_record_key(record) not in seen]
+            missing.sort(key=lambda item: (str(item.get("display_name") or item.get("id") or ""), str(item.get("type") or "")))
+            ordered.extend(self._generated_record_key(record) for record in missing)
+            next_order[tab] = ordered
+
+        self.project_info["creative_item_order"] = next_order
+        self._write_project_info()
+        if write_sources:
+            write_creative_entries(self.workspace_path, self.project_info)
 
     def _registry_id_conflict(self, registry_id: str, current_record: dict | None) -> str:
         current_type = str(current_record.get("type", "")) if current_record else ""
@@ -1857,6 +2328,10 @@ class GeneratorWindow(ctk.CTkToplevel):
             return {}
 
         return payload if isinstance(payload, dict) else {}
+
+    def _write_project_info(self) -> None:
+        path = self.workspace_path / "project_info.json"
+        path.write_text(json.dumps(self.project_info, indent=2), encoding="utf-8")
 
     def _clear_body(self) -> None:
         for widget in self.body.winfo_children():

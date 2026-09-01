@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import json
+import queue
 import tkinter as tk
 from pathlib import Path
 from tkinter import Menu, filedialog
@@ -12,7 +13,9 @@ from tkinter import Menu, filedialog
 import customtkinter as ctk
 
 from core.build_runner import BuildRunner
+from core.collaboration import CollaborationEvent, CollaborationSession
 from core.mod_icon import apply_mod_icon, upload_mod_icon
+from ui.collaboration_window import CollaborationWindow
 from ui.debug_console import DebugConsole
 from ui.file_tree import FileTree
 from ui.tab_bar import TabBar
@@ -30,6 +33,9 @@ class WorkspacePage(ctk.CTkFrame):
 
         self.on_back = on_back
         self.workspace_path: Path | None = None
+        self.collaboration_session: CollaborationSession | None = None
+        self.collaboration_window: CollaborationWindow | None = None
+        self.collaboration_events: queue.Queue[CollaborationEvent] = queue.Queue()
 
         self.build_runner = BuildRunner()
 
@@ -83,7 +89,7 @@ class WorkspacePage(ctk.CTkFrame):
         compile_group = ctk.CTkFrame(top, fg_color="transparent")
         compile_group.grid(
             row=0,
-            column=3,
+            column=4,
             padx=10,
             pady=8,
         )
@@ -98,6 +104,19 @@ class WorkspacePage(ctk.CTkFrame):
         self.settings_button.grid(
             row=0,
             column=2,
+            padx=(0, 10),
+            pady=8,
+        )
+
+        self.collaboration_button = ctk.CTkButton(
+            top,
+            text="Collaborate",
+            width=104,
+            command=self.open_collaboration,
+        )
+        self.collaboration_button.grid(
+            row=0,
+            column=3,
             padx=(0, 10),
             pady=8,
         )
@@ -144,7 +163,7 @@ class WorkspacePage(ctk.CTkFrame):
 
         self.generator_button.grid(
             row=0,
-            column=4,
+            column=5,
             padx=(0, 10),
             pady=8,
         )
@@ -158,7 +177,7 @@ class WorkspacePage(ctk.CTkFrame):
 
         self.install_gradle_button.grid(
             row=0,
-            column=5,
+            column=6,
             padx=(0, 10),
             pady=8,
         )
@@ -249,6 +268,7 @@ class WorkspacePage(ctk.CTkFrame):
         )
 
         self.refresh_gradle_state()
+        self.after(250, self._drain_collaboration_events)
 
     def _split_file(self, path: Path):
 
@@ -260,7 +280,18 @@ class WorkspacePage(ctk.CTkFrame):
 
     def load_workspace(self, path: Path) -> None:
 
+        path = Path(path).resolve()
+        if self.collaboration_session is not None:
+            self.collaboration_session.stop()
+        if self.collaboration_window is not None and self.collaboration_window.winfo_exists():
+            self.collaboration_window.destroy()
+        self.collaboration_window = None
+
         self.workspace_path = path
+        self.collaboration_session = CollaborationSession(
+            path,
+            self._queue_collaboration_event,
+        )
 
         self.title_label.configure(
             text=str(path)
@@ -269,6 +300,41 @@ class WorkspacePage(ctk.CTkFrame):
         self.tree.load(path)
 
         self.refresh_gradle_state()
+
+    def open_collaboration(self) -> None:
+        if not self.workspace_path or self.collaboration_session is None:
+            return
+        if self.collaboration_window is not None and self.collaboration_window.winfo_exists():
+            self.collaboration_window.lift()
+            self.collaboration_window.focus_force()
+            return
+        self.collaboration_window = CollaborationWindow(self, self.collaboration_session)
+
+    def _queue_collaboration_event(self, event: CollaborationEvent) -> None:
+        self.collaboration_events.put(event)
+
+    def _drain_collaboration_events(self) -> None:
+        while True:
+            try:
+                event = self.collaboration_events.get_nowait()
+            except queue.Empty:
+                break
+            self._handle_collaboration_event(event)
+        self.after(250, self._drain_collaboration_events)
+
+    def _handle_collaboration_event(self, event: CollaborationEvent) -> None:
+        self.console.write(f"\nCollaboration: {event.message}\n")
+        if event.kind == "remote_change" and event.path is not None:
+            self.tree.refresh()
+            self.editor_manager.refresh_path(event.path)
+        elif event.kind == "synced":
+            self.tree.refresh()
+            self.editor_manager.refresh_open_files()
+
+    def destroy(self) -> None:
+        if self.collaboration_session is not None:
+            self.collaboration_session.stop()
+        super().destroy()
 
     def open_workspace_settings(self) -> None:
 

@@ -1,4 +1,4 @@
-# Minecraft 1.20.1 Fabric Generator 1.0.1
+# Minecraft 1.20.1 Fabric Generator 1.0.2
 
 This generator creates the starter Fabric project that used to live directly in
 `core/project_generator.py`.

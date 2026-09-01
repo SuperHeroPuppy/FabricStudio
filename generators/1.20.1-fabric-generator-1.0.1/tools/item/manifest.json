@@ -1,6 +1,7 @@
 {
     "id": "item",
     "name": "Item",
+    "version": "1.0.4",
     "description": "Generates a basic item.",
     "supported": true,
 

@@ -1,6 +1,6 @@
 # generator.py
 # developer: SuperHeroPuppy
-# version: 1.0.0
+# version: 1.0.1
 # generator type: block
 
 from __future__ import annotations

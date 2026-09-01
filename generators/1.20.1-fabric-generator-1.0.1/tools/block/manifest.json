@@ -1,6 +1,7 @@
 {
     "id": "block",
     "name": "Block",
+    "version": "1.0.1",
     "description": "Generates a basic cube block.",
     "supported": true,
 

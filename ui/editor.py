@@ -19,6 +19,7 @@ class EditorPane(ctk.CTkFrame):
     def __init__(self, master):
         super().__init__(master, fg_color=COLORS["bg"])
         self.current_file: Path | None = None
+        self._loaded_content = ""
         self.word_wrap = False
         self._highlight_job: str | None = None
         self.close_side_callback = None
@@ -71,6 +72,7 @@ class EditorPane(ctk.CTkFrame):
 
     def load_content(self, path: Path, content: str) -> None:
         self.current_file = path
+        self._loaded_content = content
         self.textbox.delete("1.0", "end")
         self.textbox.insert("1.0", content)
         self.path_label.configure(text=str(path))
@@ -109,13 +111,29 @@ class EditorPane(ctk.CTkFrame):
 
 
     def save_current(self) -> None:
-        if not self.current_file:
+        if not self.current_file or self.current_file.suffix.lower() == ".png":
             return
         content = self.textbox.get("1.0", "end-1c")
         self.current_file.write_text(content, encoding="utf-8")
+        self._loaded_content = content
+
+    def is_dirty(self) -> bool:
+        if not self.current_file or self.current_file.suffix.lower() == ".png":
+            return False
+        return self.textbox.get("1.0", "end-1c") != self._loaded_content
+
+    def refresh_if_clean(self, path: Path) -> bool:
+        if self.current_file != path or self.is_dirty():
+            return False
+        if path.exists():
+            self.open_file(path)
+        else:
+            self.clear()
+        return True
 
     def clear(self):
         self.current_file = None
+        self._loaded_content = ""
 
         self.texture_viewer.grid_remove() 
         self.textbox.grid()

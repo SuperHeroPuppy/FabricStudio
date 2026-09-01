@@ -21,6 +21,8 @@ from core.creative_tabs import (
     write_custom_creative_tabs,
 )
 from core.data_store import COLORS
+from core.file_locks import FileLockManager, ProtectionReport
+from core.sound_events import register_audio_asset, sync_audio_assets
 from ui.theme import themed_combo_box, themed_entry, theme_menu, theme_window
 from ui.window_utils import show_on_top
 
@@ -283,12 +285,21 @@ class GeneratorWindow(ctk.CTkToplevel):
         show_on_top(self, master)
 
         self.workspace_path = Path(workspace_path)
+        self.file_locks = FileLockManager(self.workspace_path)
         self.generators = generators
         self.generator_by_id = {generator.id: generator for generator in generators}
         self.project_info = self._load_project_info()
         self.mod_id = self._safe_name(
             self.project_info.get("mod_id", self.workspace_path.name.lower())
         )
+        migrated_sounds = 0
+        sound_migration_error = ""
+        sound_migration_report = ProtectionReport()
+        try:
+            with self.file_locks.protect_generator_changes() as sound_migration_report:
+                migrated_sounds = sync_audio_assets(self.workspace_path)
+        except (OSError, ValueError) as exc:
+            sound_migration_error = str(exc)
         self.creative_tabs = creative_tabs(self.project_info)
         self.dragging_tab_id: str | None = None
         self.creative_tab_rows: dict[str, ctk.CTkFrame] = {}
@@ -373,6 +384,18 @@ class GeneratorWindow(ctk.CTkToplevel):
         self.body.grid_rowconfigure(0, weight=1)
 
         self._show_page("home")
+        if sound_migration_error:
+            self.status_label.configure(
+                text=f"Existing audio sound registration failed: {sound_migration_error}"
+            )
+        elif sound_migration_report.count:
+            self.status_label.configure(
+                text=f"{sound_migration_report.count} locked sound file(s) were protected."
+            )
+        elif migrated_sounds:
+            self.status_label.configure(
+                text=f"Registered {migrated_sounds} existing audio asset(s) for /playsound."
+            )
 
     def _add_nav_button(self, page: str, label: str, row: int) -> None:
         button = ctk.CTkButton(
@@ -1288,10 +1311,14 @@ class GeneratorWindow(ctk.CTkToplevel):
         return False
 
     def _save_creative_tabs(self, write_sources: bool = False) -> None:
+        if write_sources:
+            with self.file_locks.protect_generator_changes():
+                self.project_info["creative_tabs"] = list(self.creative_tabs)
+                self._write_project_info()
+                write_custom_creative_tabs(self.workspace_path, self.project_info)
+            return
         self.project_info["creative_tabs"] = list(self.creative_tabs)
         self._write_project_info()
-        if write_sources:
-            write_custom_creative_tabs(self.workspace_path, self.project_info)
 
     def _select_values_for_field(self, field: dict) -> list[str]:
         values = [str(value) for value in field.get("values", [])]
@@ -1828,8 +1855,23 @@ class GeneratorWindow(ctk.CTkToplevel):
             return
 
         self.selected_asset = self._asset_record_for_path(target, kind)
+        registered_sound = ""
+        if kind == "audio":
+            try:
+                registered_sound = register_audio_asset(self.workspace_path, target)
+            except (OSError, ValueError) as exc:
+                self._show_page("assets")
+                self.status_label.configure(
+                    text=f"Imported {target.name}, but sound registration failed: {exc}"
+                )
+                return
         self._show_page("assets")
-        self.status_label.configure(text=f"Imported {target.name}.")
+        if registered_sound:
+            self.status_label.configure(
+                text=f"Imported {target.name}; /playsound {registered_sound} is now registered."
+            )
+        else:
+            self.status_label.configure(text=f"Imported {target.name}.")
 
     def _generate_active_tool(self) -> None:
         if self.active_tool is None:
@@ -1874,26 +1916,28 @@ class GeneratorWindow(ctk.CTkToplevel):
             )
             return
 
-        if old_record and old_id and old_id != new_id:
-            self._delete_record_files(old_record)
-
         generate_fn = getattr(module, "generate", None)
         if not callable(generate_fn):
             self.status_label.configure(text=f"{self.active_tool.name} is missing generate().")
             return
 
+        report = ProtectionReport()
         try:
-            generate_fn(payload, self.workspace_path, self.active_tool)
+            with self.file_locks.protect_generator_changes() as report:
+                if old_record and old_id and old_id != new_id:
+                    self._delete_record_files(old_record)
+                generate_fn(payload, self.workspace_path, self.active_tool)
+                self._reconcile_creative_item_order(write_sources=True)
         except Exception as exc:
             self.status_label.configure(text=f"Generation failed: {exc}")
             return
 
         self.editing_record = None
         self.draft_values.pop(self.active_tool.id, None)
-        self._reconcile_creative_item_order(write_sources=True)
         self._show_page("home")
+        protected = f" {report.count} locked file(s) were protected." if report.count else ""
         self.status_label.configure(
-            text=f"{self.active_tool.name} {'updated' if old_record else 'generated'}."
+            text=f"{self.active_tool.name} {'updated' if old_record else 'generated'}.{protected}"
         )
 
     def _delete_generated(self, record: dict) -> None:
@@ -1905,12 +1949,19 @@ class GeneratorWindow(ctk.CTkToplevel):
         ):
             return
 
-        self._delete_record_files(record)
-        self._reconcile_creative_item_order(write_sources=True)
+        report = ProtectionReport()
+        try:
+            with self.file_locks.protect_generator_changes() as report:
+                self._delete_record_files(record)
+                self._reconcile_creative_item_order(write_sources=True)
+        except Exception as exc:
+            self.status_label.configure(text=f"Delete failed: {exc}")
+            return
         if self.editing_record is record:
             self.editing_record = None
         self._show_page("home")
-        self.status_label.configure(text=f"Deleted {title}.")
+        protected = f" {report.count} locked file(s) were protected." if report.count else ""
+        self.status_label.configure(text=f"Deleted {title}.{protected}")
 
     def _delete_record_files(self, record: dict) -> None:
         tool = self._tool_for_record(record)
@@ -2137,10 +2188,14 @@ class GeneratorWindow(ctk.CTkToplevel):
             ordered.extend(self._generated_record_key(record) for record in missing)
             next_order[tab] = ordered
 
+        if write_sources:
+            with self.file_locks.protect_generator_changes():
+                self.project_info["creative_item_order"] = next_order
+                self._write_project_info()
+                write_creative_entries(self.workspace_path, self.project_info)
+            return
         self.project_info["creative_item_order"] = next_order
         self._write_project_info()
-        if write_sources:
-            write_creative_entries(self.workspace_path, self.project_info)
 
     def _registry_id_conflict(self, registry_id: str, current_record: dict | None) -> str:
         current_type = str(current_record.get("type", "")) if current_record else ""
@@ -2202,7 +2257,7 @@ class GeneratorWindow(ctk.CTkToplevel):
                 return None
             name_parts = list(parts[2:])
             name_parts[-1] = Path(name_parts[-1]).stem
-            identifier = f"{namespace}:sounds/{'/'.join(name_parts)}"
+            identifier = f"{namespace}:{'/'.join(name_parts)}"
         else:
             if len(parts) < 4 or parts[1] != "models":
                 return None
@@ -2223,9 +2278,18 @@ class GeneratorWindow(ctk.CTkToplevel):
         for asset in self._asset_records():
             if asset["identifier"] == identifier:
                 return asset
+            if asset["kind"] == "audio" and self._legacy_audio_identifier(asset) == identifier:
+                return asset
             if asset["kind"] == "models" and self._legacy_model_identifier(asset) == identifier:
                 return asset
         return None
+
+    def _legacy_audio_identifier(self, asset: dict) -> str:
+        identifier = str(asset.get("identifier", ""))
+        if ":" not in identifier:
+            return identifier
+        namespace, sound_path = identifier.split(":", 1)
+        return f"{namespace}:sounds/{sound_path}"
 
     def _legacy_model_identifier(self, asset: dict) -> str:
         identifier = str(asset.get("identifier", ""))

@@ -1,6 +1,6 @@
 # generator.py
 # developer: SuperHeroPuppy
-# version: 1.0.3
+# version: 1.0.4
 # generator type: item
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ import re
 from pathlib import Path
 
 from core.creative_tabs import creative_tabs, custom_tab_id, write_creative_entries, write_custom_creative_tabs
+from core.sound_events import register_sound_event, unregister_sound_event
 
 
 FABRIC_API_VERSION = "0.92.9+1.20.1"
@@ -24,6 +25,7 @@ def safe_name(name: str) -> str:
 
 def generate(data: dict, workspace_root: Path, tool) -> None:
     item_name = safe_name(data.get("registry_name", "unnamed_item"))
+    previous_form_data = _previous_form_data(workspace_root, item_name)
     display_name = data.get("display_name") or _title_from_id(item_name)
     project = _load_project_info(workspace_root)
     mod_id = safe_name(project.get("mod_id", workspace_root.name.lower()))
@@ -59,22 +61,26 @@ def generate(data: dict, workspace_root: Path, tool) -> None:
 
     if _as_bool(form_data.get("music_disc", False)):
         mod_sounds_path = java_root / "sound" / "ModSounds.java"
-        _write_mod_sounds(mod_sounds_path, package_name, main_class, mod_id, item_name)
+        sounds_path = assets_root / "sounds.json"
+        register_sound_event(
+            workspace_root,
+            item_name,
+            _sound_file_identifier(form_data.get("music_disc_sound"), mod_id, item_name),
+            form_data.get("music_disc_subtitle_key"),
+            stream=True,
+        )
         touched_files.append(mod_sounds_path)
+        touched_files.append(sounds_path)
 
         music_discs_tag = resources_root / "data" / "minecraft" / "tags" / "items" / "music_discs.json"
         _update_tag_json(music_discs_tag, f"{mod_id}:{item_name}")
         touched_files.append(music_discs_tag)
-
-        sounds_path = assets_root / "sounds.json"
-        _update_sounds_json(
-            sounds_path,
-            item_name,
-            _sound_file_identifier(form_data.get("music_disc_sound"), mod_id, item_name),
-            form_data.get("music_disc_subtitle_key"),
+    elif _as_bool(previous_form_data.get("music_disc", False)):
+        unregister_sound_event(workspace_root, item_name)
+        _remove_tag_json_entry(
+            resources_root / "data" / "minecraft" / "tags" / "items" / "music_discs.json",
+            f"{mod_id}:{item_name}",
         )
-        touched_files.append(sounds_path)
-        _update_main_class_for_sounds(main_class_path, package_name, main_class, mod_id)
 
     lang_path = assets_root / "lang" / "en_us.json"
     _update_lang(lang_path, f"item.{mod_id}.{item_name}", display_name)
@@ -89,6 +95,9 @@ def generate(data: dict, workspace_root: Path, tool) -> None:
             form_data.get("music_disc_subtitle_key"),
             form_data.get("music_disc_subtitle") or f"{display_name} plays",
         )
+    elif _as_bool(previous_form_data.get("music_disc", False)):
+        _remove_lang_entry(assets_root / "lang" / "en_us.json", f"item.{mod_id}.{item_name}.desc")
+        _remove_lang_entry(assets_root / "lang" / "en_us.json", f"subtitles.{mod_id}.{item_name}")
     touched_files.append(lang_path)
 
     base_root = workspace_root / "generated" / "item" / item_name
@@ -124,8 +133,9 @@ def delete(record: dict, workspace_root: Path, tool) -> None:
     assets_root = resources_root / "assets" / mod_id
 
     _remove_mod_item(java_root / "item" / "ModItems.java", item_name)
-    _remove_sound_event(java_root / "sound" / "ModSounds.java", item_name)
-    _remove_sounds_json_entry(assets_root / "sounds.json", item_name)
+    form_data = record.get("form_data", {})
+    if isinstance(form_data, dict) and _as_bool(form_data.get("music_disc", False)):
+        unregister_sound_event(workspace_root, item_name)
     _remove_tag_json_entry(
         resources_root / "data" / "minecraft" / "tags" / "items" / "music_discs.json",
         f"{mod_id}:{item_name}",
@@ -157,6 +167,18 @@ def _load_project_info(workspace_root: Path) -> dict:
         return {}
 
     return payload if isinstance(payload, dict) else {}
+
+
+def _previous_form_data(workspace_root: Path, item_name: str) -> dict:
+    path = workspace_root / "generated" / "item" / item_name / "generated_info.json"
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    form_data = payload.get("form_data", {}) if isinstance(payload, dict) else {}
+    return form_data if isinstance(form_data, dict) else {}
 
 
 def _write_json(path: Path, payload: dict) -> None:
@@ -712,151 +734,6 @@ def _upsert_creative_inventory_entry(
     return content
 
 
-def _write_mod_sounds(
-    path: Path,
-    package_name: str,
-    main_class: str,
-    mod_id: str,
-    item_name: str,
-) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    field_name = _java_constant(item_name)
-    field_line = (
-        f'    public static final SoundEvent {field_name} = registerSoundEvent("{item_name}");\n'
-    )
-
-    if not path.exists():
-        path.write_text(
-            _mod_sounds_source(package_name, main_class, mod_id, field_line),
-            encoding="utf-8",
-        )
-        return
-
-    content = path.read_text(encoding="utf-8")
-    field_pattern = (
-        rf"    public static final SoundEvent {re.escape(field_name)} = "
-        r"registerSoundEvent\(\"[^\"]+\"\);\n"
-    )
-    if re.search(field_pattern, content):
-        content = re.sub(field_pattern, field_line, content, count=1)
-    else:
-        marker = "    private static SoundEvent registerSoundEvent("
-        content = content.replace(marker, field_line + "\n" + marker, 1)
-
-    path.write_text(content, encoding="utf-8")
-
-
-def _mod_sounds_source(
-    package_name: str,
-    main_class: str,
-    mod_id: str,
-    field_line: str,
-) -> str:
-    return f"""package {package_name}.sound;
-
-import {package_name}.{main_class};
-import net.minecraft.registry.Registries;
-import net.minecraft.registry.Registry;
-import net.minecraft.sound.SoundEvent;
-import net.minecraft.util.Identifier;
-
-public class ModSounds {{
-{field_line.rstrip()}
-
-    private static SoundEvent registerSoundEvent(String name) {{
-        Identifier id = new Identifier({main_class}.MOD_ID, name);
-        return Registry.register(Registries.SOUND_EVENT, id, SoundEvent.of(id));
-    }}
-
-    public static void registerSoundEvents() {{
-        System.out.println("Registering sounds for {mod_id}");
-    }}
-}}
-"""
-
-
-def _update_main_class_for_sounds(
-    path: Path,
-    package_name: str,
-    main_class: str,
-    mod_id: str,
-) -> None:
-    _update_main_class(path, package_name, main_class, mod_id)
-    content = path.read_text(encoding="utf-8")
-    import_line = f"import {package_name}.sound.ModSounds;"
-
-    if import_line not in content:
-        content = _insert_import(content, import_line)
-
-    call = "        ModSounds.registerSoundEvents();"
-    if call not in content:
-        content = _insert_on_initialize_call(content, call)
-
-    path.write_text(content, encoding="utf-8")
-
-
-def _update_sounds_json(
-    path: Path,
-    sound_event: str,
-    sound_file: str,
-    subtitle_key: str | None,
-) -> None:
-    payload = {}
-    if path.exists():
-        try:
-            existing = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            existing = {}
-        if isinstance(existing, dict):
-            payload = existing
-
-    sound_payload = {
-        "sounds": [
-            {
-                "name": sound_file,
-                "stream": True,
-            }
-        ]
-    }
-    if subtitle_key:
-        sound_payload["subtitle"] = subtitle_key
-
-    payload[sound_event] = sound_payload
-    _write_json(path, payload)
-
-
-def _remove_sound_event(path: Path, item_name: str) -> None:
-    if not path.exists():
-        return
-
-    field_name = _java_constant(item_name)
-    content = path.read_text(encoding="utf-8")
-    pattern = (
-        rf"\n?    public static final SoundEvent {re.escape(field_name)} = "
-        r"registerSoundEvent\(\"[^\"]+\"\);\n"
-    )
-    updated = re.sub(pattern, "\n", content, count=1)
-    updated = re.sub(r"\n{3,}", "\n\n", updated)
-    if updated != content:
-        path.write_text(updated, encoding="utf-8")
-
-
-def _remove_sounds_json_entry(path: Path, sound_event: str) -> None:
-    if not path.exists():
-        return
-
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return
-
-    if not isinstance(payload, dict) or sound_event not in payload:
-        return
-
-    del payload[sound_event]
-    _write_json(path, payload)
-
-
 def _update_tag_json(path: Path, identifier: str) -> None:
     payload = {"replace": False, "values": []}
     if path.exists():
@@ -898,7 +775,17 @@ def _remove_tag_json_entry(path: Path, identifier: str) -> None:
 
 def _normalize_sound_asset(value, item_name: str) -> str:
     text = str(value or "").strip().replace("\\", "/")
-    return text or f"sounds/{item_name}"
+    if not text:
+        return item_name
+
+    namespace = ""
+    if ":" in text:
+        namespace, text = text.split(":", 1)
+    if text.startswith("sounds/"):
+        text = text[len("sounds/") :]
+    if text.endswith(".ogg"):
+        text = text[:-4]
+    return f"{namespace}:{text}" if namespace else text
 
 
 def _music_disc_length_seconds(

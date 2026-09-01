@@ -6,12 +6,14 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from tkinter import Menu, messagebox, simpledialog
 
 import customtkinter as ctk
 
 from core.data_store import COLORS
+from core.file_locks import FileLockManager
 from ui.theme import theme_menu
 
 
@@ -20,6 +22,7 @@ class FileTree(ctk.CTkFrame):
         super().__init__(master, fg_color=COLORS["panel"], corner_radius=0)
         self.on_open_file = on_open_file
         self.root_path: Path | None = None
+        self.file_locks: FileLockManager | None = None
         self.collapsed_paths: set[Path] = set()
         self.menu = Menu(self, tearoff=0)
         theme_menu(self.menu)
@@ -40,6 +43,7 @@ class FileTree(ctk.CTkFrame):
 
     def load(self, root_path: Path) -> None:
         self.root_path = root_path
+        self.file_locks = FileLockManager(root_path)
         self.collapsed_paths.clear()
         self.refresh()
 
@@ -61,6 +65,7 @@ class FileTree(ctk.CTkFrame):
             if child.name in {
                 ".gradle",
                 ".gradle-runtime",
+                ".fabricstudio",
                 ".git",
                 "bin",
                 "__pycache__",
@@ -99,7 +104,8 @@ class FileTree(ctk.CTkFrame):
             prefix = "+" if path in self.collapsed_paths else "-"
             text = f"{'    ' * depth}{prefix} {path.name}"
         else:
-            text = f"{'    ' * depth}  {path.name}"
+            lock_marker = " [generator locked]" if self._is_locked(path) else ""
+            text = f"{'    ' * depth}  {path.name}{lock_marker}"
 
         button = ctk.CTkButton(
             row,
@@ -134,6 +140,10 @@ class FileTree(ctk.CTkFrame):
             self.menu.add_command(label="Find Location", command=self._find_location)
         else:
             self.menu.add_command(label="Edit", command=self._edit_file)
+            self.menu.add_command(
+                label="Unlock for Generators" if self._is_locked(path) else "Lock from Generators",
+                command=self._toggle_generator_lock,
+            )
             self.menu.add_command(label="Delete", command=self._delete_path)
             self.menu.add_command(label="Find Location", command=self._find_location)
         self.menu.tk_popup(event.x_root, event.y_root)
@@ -184,6 +194,25 @@ class FileTree(ctk.CTkFrame):
         if target and target.is_file():
             self.on_open_file(target)
 
+    def _toggle_generator_lock(self) -> None:
+        target = self.menu_target
+        if not target or not target.is_file() or self.file_locks is None:
+            return
+        try:
+            if self.file_locks.is_locked(target):
+                self.file_locks.unlock(target)
+            else:
+                self.file_locks.lock(target)
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("File Lock", str(exc), parent=self)
+        self.refresh()
+
+    def _is_locked(self, path: Path) -> bool:
+        try:
+            return bool(self.file_locks and path.is_file() and self.file_locks.is_locked(path))
+        except (OSError, ValueError):
+            return False
+
     def _delete_path(self) -> None:
         target = self.menu_target
         if not target:
@@ -201,7 +230,13 @@ class FileTree(ctk.CTkFrame):
         target = self.menu_target
         if not target:
             return
-        subprocess.Popen(["explorer", "/select,", str(target)])
+        if sys.platform == "win32":
+            subprocess.Popen(["explorer", "/select,", str(target)])
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", "-R", str(target)])
+        else:
+            location = target if target.is_dir() else target.parent
+            subprocess.Popen(["xdg-open", str(location)])
 
     def _infer_java_package(self, folder: Path) -> str:
         parts = list(folder.parts)

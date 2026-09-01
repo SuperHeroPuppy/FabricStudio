@@ -304,6 +304,7 @@ def _creative_inventory_groups() -> dict[str, str]:
         "food_and_drink": "FOOD_AND_DRINK",
         "ingredients": "INGREDIENTS",
         "operator": "OPERATOR",
+        "none": "",
     }
 
 

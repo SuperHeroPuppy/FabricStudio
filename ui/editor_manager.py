@@ -100,3 +100,14 @@ class EditorManager(ctk.CTkFrame):
 
         if self.right_visible:
             self.right.save_current()
+
+    def refresh_path(self, path: Path) -> None:
+        self.left.refresh_if_clean(path)
+        if self.right_visible:
+            self.right.refresh_if_clean(path)
+
+    def refresh_open_files(self) -> None:
+        if self.left.current_file is not None:
+            self.left.refresh_if_clean(self.left.current_file)
+        if self.right_visible and self.right.current_file is not None:
+            self.right.refresh_if_clean(self.right.current_file)

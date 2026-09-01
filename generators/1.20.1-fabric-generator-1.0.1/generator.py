@@ -1,6 +1,6 @@
 # generator.py
 # developer: SuperHeroPuppy
-# version: 1.0.1
+# version: 1.0.2
 # minecraft: fabric 1.20.1
 
 from __future__ import annotations
